@@ -1,0 +1,1 @@
+"""GradeSense Backend Application"""

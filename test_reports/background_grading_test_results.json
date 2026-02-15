@@ -1,0 +1,93 @@
+{
+  "timestamp": "2026-01-18T05:34:14.689316",
+  "total_tests": 17,
+  "passed_tests": 17,
+  "success_rate": 100.0,
+  "test_details": [
+    {
+      "test": "Create Test Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Test Subject",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam for Background Grading Test",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Background Grading Job Creation",
+      "success": true,
+      "details": "Job ID: job_fc736909d322"
+    },
+    {
+      "test": "Background Grading Response Structure",
+      "success": true,
+      "details": "All required fields present: ['job_id', 'status', 'total_papers', 'message']"
+    },
+    {
+      "test": "Initial Job Status",
+      "success": true,
+      "details": "Status is 'pending' as expected"
+    },
+    {
+      "test": "Poll Job Status (attempt 1)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Poll Job Status (attempt 2)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Poll Job Status (attempt 3)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Background Job Completion",
+      "success": true,
+      "details": "Job completed successfully: 3 successful, 0 failed"
+    },
+    {
+      "test": "Submissions Creation",
+      "success": true,
+      "details": "Created 3 submissions"
+    },
+    {
+      "test": "Progress Tracking",
+      "success": true,
+      "details": "All 3 papers processed"
+    },
+    {
+      "test": "No 'Read of Closed File' Errors",
+      "success": true,
+      "details": "No 'read of closed file' errors found in recent logs"
+    },
+    {
+      "test": "Background Processing Log Messages",
+      "success": true,
+      "details": "Found expected log messages: 3/3"
+    },
+    {
+      "test": "Verify Submissions in Database",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Database Submissions Verification",
+      "success": true,
+      "details": "Found 3 submissions in database"
+    },
+    {
+      "test": "Submission Structure Verification",
+      "success": true,
+      "details": "Submissions have correct structure"
+    }
+  ]
+}

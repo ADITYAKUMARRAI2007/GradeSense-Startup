@@ -1,0 +1,175 @@
+/* App specific styles */
+.App {
+    min-height: 100vh;
+}
+
+/* Sidebar styles */
+.sidebar {
+    width: 260px;
+    min-height: 100vh;
+    background: white;
+    border-right: 1px solid hsl(var(--border));
+}
+
+.sidebar-collapsed {
+    width: 72px;
+}
+
+/* Main content area */
+.main-content {
+    flex: 1;
+    min-height: 100vh;
+    background: hsl(var(--muted));
+}
+
+/* Page transitions */
+.page-enter {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.page-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 300ms, transform 300ms;
+}
+
+/* Upload zone styles */
+.upload-zone {
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.upload-zone.dragging {
+    background: hsl(var(--primary) / 0.1);
+    border-color: hsl(var(--primary));
+}
+
+/* Progress bar animation */
+@keyframes progress-stripes {
+    0% { background-position: 1rem 0; }
+    100% { background-position: 0 0; }
+}
+
+.progress-striped {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 1rem 1rem;
+    animation: progress-stripes 1s linear infinite;
+}
+
+/* Score badge animations */
+.score-badge {
+    transition: transform 0.2s ease;
+}
+
+.score-badge:hover {
+    transform: scale(1.05);
+}
+
+/* Table row hover */
+.table-row-hover:hover {
+    background: hsl(var(--muted));
+}
+
+/* PDF viewer container */
+.pdf-container {
+    overflow: auto;
+    max-height: calc(100vh - 200px);
+}
+
+/* Question score cards */
+.question-card {
+    transition: all 0.2s ease;
+}
+
+.question-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.question-card.reviewed {
+    border-left: 4px solid hsl(var(--success));
+}
+
+/* Empty state */
+.empty-state {
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.empty-state svg {
+    margin: 0 auto 1rem;
+    opacity: 0.5;
+}
+
+/* Chart container */
+.chart-container {
+    min-height: 300px;
+}
+
+/* Notification badge */
+.notification-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: hsl(var(--destructive));
+    color: white;
+}
+
+/* Grading mode cards */
+.grading-mode-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.grading-mode-card:hover {
+    border-color: hsl(var(--primary) / 0.5);
+}
+
+.grading-mode-card.selected {
+    border-color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.05);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+}
+
+/* Step indicator */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.step-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.3);
+}
+
+.step-dot.active {
+    background: hsl(var(--primary));
+}
+
+.step-dot.completed {
+    background: hsl(var(--success));
+}

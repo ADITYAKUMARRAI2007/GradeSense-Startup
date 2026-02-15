@@ -1,0 +1,48 @@
+{
+  "timestamp": "2025-12-27T07:45:13.680692",
+  "total_tests": 8,
+  "passed_tests": 8,
+  "success_rate": 100.0,
+  "test_details": [
+    {
+      "test": "Create Test Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Test Subject",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create First Exam (Test Exam 1)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Duplicate Exam Prevention",
+      "success": true,
+      "details": "Correctly prevented duplicate with message: An exam with this name already exists"
+    },
+    {
+      "test": "Verify Exam Exists Before Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Exam Deleted",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Non-existent Exam (should fail)",
+      "success": true,
+      "details": ""
+    }
+  ]
+}

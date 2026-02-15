@@ -1,0 +1,1198 @@
+{
+  "timestamp": "2026-01-26T06:20:08.318025",
+  "total_tests": 238,
+  "passed_tests": 219,
+  "success_rate": 92.01680672268907,
+  "test_details": [
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Subject",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Critical Fix #1: Create Exam for Question Extraction",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Critical Fix #1: Trigger Question Extraction",
+      "success": false,
+      "details": "Expected 200, got 520 - No documents available for extraction"
+    },
+    {
+      "test": "Critical Fix #2: Create Exam with Optional Questions",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Critical Fix #2: Verify Total Marks Calculation",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Critical Fix #2: Optional Questions Total Marks",
+      "success": true,
+      "details": "Correct calculation: 20.0 marks (expected 20.0)"
+    },
+    {
+      "test": "Critical Fix #2: Optional Question Fields",
+      "success": true,
+      "details": "All 4 questions marked as optional"
+    },
+    {
+      "test": "Critical Fix #2: Optional Question Metadata",
+      "success": true,
+      "details": "required_count and optional_group fields correctly set"
+    },
+    {
+      "test": "Critical Fix #3: Checkbox Default Values",
+      "success": false,
+      "details": "Could not find all checkbox useState declarations: ['Line 56: const [showModelAnswer, setShowModelAnswer] = useState(true);', 'Line 57: const [showQuestionPaper, setShowQuestionPaper] = useState(true);']"
+    },
+    {
+      "test": "Critical Fix #4: Manual Entry Form Condition",
+      "success": false,
+      "details": "Old logic still present (includes questionsSkipped): Line 1241: {!showManualEntry && !questionsSkipped && ("
+    },
+    {
+      "test": "Auth Me",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Batch",
+      "success": false,
+      "details": "Expected 200, got 400 - A batch with this name already exists"
+    },
+    {
+      "test": "Duplicate Batch Prevention",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Batches",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Batch Details",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Batch Name",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Temp Batch for Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Empty Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Subject",
+      "success": false,
+      "details": "Expected 200, got 400 - Subject already exists"
+    },
+    {
+      "test": "Get Subjects",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Students",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam with Sub-questions",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam - Strict Mode",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam - Balanced Mode",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam - Conceptual Mode",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam - Lenient Mode",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Exams",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Analytics Dashboard",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Detailed Student Analytics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Submissions (Teacher)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Submissions with Batch Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Re-evaluation Requests",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Dashboard Analytics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Class Report",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "AI Insights",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create First Exam (Test Exam 1)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Duplicate Exam (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Exam Exists Before Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Exam Deleted",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Exam Deletion Verification",
+      "success": true,
+      "details": "Exam successfully removed from list"
+    },
+    {
+      "test": "Delete Non-existent Exam (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Valid ID (STU061842)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Short ID (AB) - should fail",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Long ID - should fail",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Invalid Characters (STU@001) - should fail",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Duplicate ID Different Name - should fail",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Exam for Filename Parsing Test",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student for Auto-Add to Batch Test",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Batch Details to Verify Student Added",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Auto-Added to Batch Verification",
+      "success": true,
+      "details": "Student user_ac735fad0377 found in batch batch_6b1b0857"
+    },
+    {
+      "test": "Create Student with Format STU0618421 (John Doe)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Format ROLL061842 (Alice Smith)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student with Format A061842 (Bob Jones)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify All Students Added to Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "All Created Students Found in Batch",
+      "success": true,
+      "details": "All 3 students found in batch"
+    },
+    {
+      "test": "Global Search - Short Query (should return empty)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Short Query Returns Empty Results",
+      "success": true,
+      "details": "All categories empty for query < 2 chars"
+    },
+    {
+      "test": "Global Search - Batch Name",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Batch Search Results",
+      "success": true,
+      "details": "Found 1 batch(es)"
+    },
+    {
+      "test": "Global Search - Exam Name",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Global Search Structure",
+      "success": true,
+      "details": "Results: 7 exams, 3 students, 2 submissions"
+    },
+    {
+      "test": "Global Search - Student Name",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Search Results",
+      "success": true,
+      "details": "Found 1 student(s)"
+    },
+    {
+      "test": "Get Notifications",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Notifications Structure",
+      "success": true,
+      "details": "Retrieved 0 notifications, 0 unread"
+    },
+    {
+      "test": "Notification Structure Validation",
+      "success": true,
+      "details": "No notifications to validate (empty list)"
+    },
+    {
+      "test": "Mark Non-existent Notification as Read (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Initial Notifications Count",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Re-evaluation Request (should create notification)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Check Notifications After Re-evaluation Request",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Auto-Notification Creation",
+      "success": true,
+      "details": "Notification created: 1 new notification(s)"
+    },
+    {
+      "test": "Re-evaluation Notification Type",
+      "success": true,
+      "details": "Found re_evaluation_request notification"
+    },
+    {
+      "test": "Create P1 Test Exam with Detailed Rubrics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "P1: Get Submission with Question Text Enrichment",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "P1: Question Text Enrichment - Question 1",
+      "success": true,
+      "details": "Question text found: Solve the following algebraic equation step by ste..."
+    },
+    {
+      "test": "P1: Question Text Enrichment - Question 2",
+      "success": true,
+      "details": "Question text found: Analyze the quadratic function f(x) = x\u00b2 - 4x + 3...."
+    },
+    {
+      "test": "Get P1 Test Exam for Rubric Comparison",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "P1: Rubric Mapping Q1",
+      "success": true,
+      "details": "Exam rubric correctly mapped to question_text"
+    },
+    {
+      "test": "P1: Rubric Mapping Q2",
+      "success": true,
+      "details": "Exam rubric correctly mapped to question_text"
+    },
+    {
+      "test": "P1: Overall Question Text Mapping",
+      "success": true,
+      "details": "All exam rubrics correctly mapped to submission question_text fields"
+    },
+    {
+      "test": "P1: Sub-question A Rubric",
+      "success": true,
+      "details": "Sub-question A rubric found: Isolate the variable x by performing inv..."
+    },
+    {
+      "test": "P1: Sub-question B Rubric",
+      "success": true,
+      "details": "Sub-question B rubric found: Verify your answer by substituting back ..."
+    },
+    {
+      "test": "P1: Sub-questions Structure",
+      "success": true,
+      "details": "Found 2 sub-questions with correct structure"
+    },
+    {
+      "test": "P1: No Sub-questions for Q2",
+      "success": true,
+      "details": "Question 2 correctly has no sub-questions"
+    },
+    {
+      "test": "P1: File Images Preservation",
+      "success": true,
+      "details": "file_images array preserved with 2 image(s)"
+    },
+    {
+      "test": "P1: File Images Format",
+      "success": true,
+      "details": "Images are in correct base64 string format (length: 12)"
+    },
+    {
+      "test": "P1: File Data Preservation",
+      "success": true,
+      "details": "file_data field preserved in response"
+    },
+    {
+      "test": "P1: Essential Fields Preservation",
+      "success": true,
+      "details": "All essential submission fields preserved"
+    },
+    {
+      "test": "Submit Question-Specific Feedback",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Feedback ID Generation",
+      "success": true,
+      "details": "Generated feedback_id: feedback_916f318c"
+    },
+    {
+      "test": "Submit General Feedback",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "General Feedback ID Generation",
+      "success": true,
+      "details": "Generated feedback_id: feedback_ecf2113c"
+    },
+    {
+      "test": "Submit Feedback Without Auth (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submit Feedback Missing Required Fields (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submit Feedback Invalid Type",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get My Feedback Submissions",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Feedback Response Structure",
+      "success": true,
+      "details": "Retrieved 3 feedback submissions"
+    },
+    {
+      "test": "Feedback Structure Validation",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Submit Grading Issue Feedback",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submit AI Mistake Feedback",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submit General Suggestion Feedback",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Complete Workflow - All Feedback Types",
+      "success": true,
+      "details": "Successfully submitted 3 different feedback types"
+    },
+    {
+      "test": "Verify Feedback Storage",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Feedback Storage Verification",
+      "success": true,
+      "details": "All 3 feedback submissions stored correctly"
+    },
+    {
+      "test": "Analytics: Misconceptions Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Misconceptions Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Question Insights Structure",
+      "success": true,
+      "details": "Question insights have correct structure"
+    },
+    {
+      "test": "Misconceptions: Authentication Required",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery: With Exam Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Topic Color Coding",
+      "success": true,
+      "details": "Color 'green' correct for 75.0%"
+    },
+    {
+      "test": "Topics Structure",
+      "success": true,
+      "details": "Topics have correct structure"
+    },
+    {
+      "test": "Topic Mastery: With Batch Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery: With Both Filters",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Deep Dive: Basic Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Deep Dive Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Student Info Structure",
+      "success": true,
+      "details": "Student info has correct structure"
+    },
+    {
+      "test": "AI Analysis Structure",
+      "success": true,
+      "details": "AI analysis has correct structure"
+    },
+    {
+      "test": "Student Deep Dive: With Exam Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Generate Review Packet",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Review Packet Generation",
+      "success": true,
+      "details": "No practice questions generated (no weak areas)"
+    },
+    {
+      "test": "Generate Review Packet: Non-existent Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Auto-Infer Topic Tags",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Infer Topics Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Topics Mapping Structure",
+      "success": true,
+      "details": "Topics correctly mapped: Q1 -> ['Algebra - Solving Equations']"
+    },
+    {
+      "test": "Infer Topics: Authentication Required",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Infer Topics: Non-existent Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Question Topics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Topics Response",
+      "success": true,
+      "details": "Success message: Topic tags updated successfully"
+    },
+    {
+      "test": "Verify Topics Saved",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topics Persistence Verification",
+      "success": true,
+      "details": "Topics saved correctly: ['Algebra', 'Linear Equations']"
+    },
+    {
+      "test": "Update Question Topics: Empty Topics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Auto-Infer Topic Tags",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Infer Topics Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Topics Mapping Structure",
+      "success": true,
+      "details": "Topics correctly mapped: Q1 -> ['Algebra - Solving Equations']"
+    },
+    {
+      "test": "Infer Topics: Authentication Required",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Infer Topics: Non-existent Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Analytics: Misconceptions Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Misconceptions Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Question Insights Structure",
+      "success": true,
+      "details": "Question insights have correct structure"
+    },
+    {
+      "test": "Misconceptions: Authentication Required",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery: With Exam Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Topic Color Coding",
+      "success": true,
+      "details": "Color 'green' correct for 75.0%"
+    },
+    {
+      "test": "Topics Structure",
+      "success": true,
+      "details": "Topics have correct structure"
+    },
+    {
+      "test": "Topic Mastery: With Batch Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery: With Both Filters",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Deep Dive: Basic Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Deep Dive Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Student Info Structure",
+      "success": true,
+      "details": "Student info has correct structure"
+    },
+    {
+      "test": "AI Analysis Structure",
+      "success": true,
+      "details": "AI analysis has correct structure"
+    },
+    {
+      "test": "Student Deep Dive: With Exam Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Generate Review Packet",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Review Packet Generation",
+      "success": true,
+      "details": "No practice questions generated (no weak areas)"
+    },
+    {
+      "test": "Generate Review Packet: Non-existent Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Question Topics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Topics Response",
+      "success": true,
+      "details": "Success message: Topic tags updated successfully"
+    },
+    {
+      "test": "Verify Topics Saved",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topics Persistence Verification",
+      "success": true,
+      "details": "Topics saved correctly: ['Algebra', 'Linear Equations']"
+    },
+    {
+      "test": "Update Question Topics: Empty Topics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Comprehensive Analytics Workflow",
+      "success": true,
+      "details": "All 6 analytics endpoints working correctly"
+    },
+    {
+      "test": "Health Check",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Grade With AI - New Implementation Verification",
+      "success": true,
+      "details": "Found 9/11 key implementation indicators"
+    },
+    {
+      "test": "LLM Model Migration - Gemini 2.5 Pro",
+      "success": false,
+      "details": "Gemini 2.5 Pro model not found in implementation"
+    },
+    {
+      "test": "Consistency Feature - Content Hashing",
+      "success": false,
+      "details": "Content hashing not found in implementation"
+    },
+    {
+      "test": "Create Exam - Strict Mode (\ud83d\udd34 Academic rigor at its highest)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Strict Mode Exam Details",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Grading Mode Storage - Strict",
+      "success": true,
+      "details": "Exam correctly stored with strict grading mode"
+    },
+    {
+      "test": "Create Exam - Balanced Mode (\u2696\ufe0f Fair and reasonable evaluation)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Balanced Mode Exam Details",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Grading Mode Storage - Balanced",
+      "success": true,
+      "details": "Exam correctly stored with balanced grading mode"
+    },
+    {
+      "test": "Create Exam - Conceptual Mode (\ud83d\udd35 Understanding over procedure)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Conceptual Mode Exam Details",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Grading Mode Storage - Conceptual",
+      "success": true,
+      "details": "Exam correctly stored with conceptual grading mode"
+    },
+    {
+      "test": "Create Exam - Lenient Mode (\ud83d\udfe2 Encourage and reward effort)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Lenient Mode Exam Details",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Grading Mode Storage - Lenient",
+      "success": true,
+      "details": "Exam correctly stored with lenient grading mode"
+    },
+    {
+      "test": "LLM Migration - Gemini 2.5 Pro Usage Count",
+      "success": false,
+      "details": "Expected 7+ instances, found 0"
+    },
+    {
+      "test": "LLM Migration - Function Coverage",
+      "success": false,
+      "details": "Only 0/7 functions migrated"
+    },
+    {
+      "test": "LLM Migration - GPT-4o Removal",
+      "success": true,
+      "details": "No remaining GPT-4o references found"
+    },
+    {
+      "test": "Consistency Features - Implementation",
+      "success": true,
+      "details": "Found 3/5 consistency indicators"
+    },
+    {
+      "test": "Consistency Features - Hashlib Import",
+      "success": true,
+      "details": "hashlib import found for content hashing"
+    },
+    {
+      "test": "Consistency Features - Deterministic Session ID",
+      "success": false,
+      "details": "Deterministic session ID not implemented"
+    },
+    {
+      "test": "Create Exam for Rotation/Text Testing",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Model Answer Text Extraction Logs",
+      "success": false,
+      "details": "No text extraction log messages found"
+    },
+    {
+      "test": "Rotation Correction Logs",
+      "success": false,
+      "details": "No rotation correction log message found"
+    },
+    {
+      "test": "Text-Based Grading Logs",
+      "success": false,
+      "details": "No text-based grading log message found"
+    },
+    {
+      "test": "Retrieve Graded Submission",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submission Has Valid Total Score",
+      "success": true,
+      "details": "Total score: 78"
+    },
+    {
+      "test": "Question Scores Have Feedback",
+      "success": true,
+      "details": "All 3 questions have AI feedback"
+    },
+    {
+      "test": "Submission Status",
+      "success": true,
+      "details": "Status is 'ai_graded' as expected"
+    },
+    {
+      "test": "Upload More Papers: No Files (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Upload More Papers: Non-existent Exam (should fail)",
+      "success": false,
+      "details": "Expected 404, got 422 - [{'type': 'missing', 'loc': ['body', 'files'], 'msg': 'Field required', 'input': None, 'url': 'https://errors.pydantic.dev/2.12/v/missing'}]"
+    },
+    {
+      "test": "Upload More Papers: Authentication Required",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Upload More Papers Endpoint Structure",
+      "success": true,
+      "details": "Endpoint properly configured with authentication and validation"
+    },
+    {
+      "test": "Filename Parsing Logic",
+      "success": true,
+      "details": "parse_student_from_filename function handles 6 different filename formats"
+    },
+    {
+      "test": "Subject Name Filtering",
+      "success": true,
+      "details": "Function filters out common subject names from student names"
+    },
+    {
+      "test": "Create Existing Student for Upload Test",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Existing Student Handling",
+      "success": true,
+      "details": "Created test student EXIST061917 for upload-more-papers testing"
+    },
+    {
+      "test": "Get Exam Submissions - Teacher Access",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submissions Response Format",
+      "success": true,
+      "details": "Response is array with 1 submissions"
+    },
+    {
+      "test": "Large Binary Data Exclusion",
+      "success": true,
+      "details": "file_data and file_images correctly excluded"
+    },
+    {
+      "test": "Required Fields Present",
+      "success": true,
+      "details": "All required fields present in submission"
+    },
+    {
+      "test": "Get Submissions - Non-existent Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Submissions - No Authentication",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Submission Exists Before Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submission Exists Before Deletion",
+      "success": true,
+      "details": "Submission delete_test_sub_1769408357 found in exam submissions"
+    },
+    {
+      "test": "Delete Submission - Valid Request",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Success Message",
+      "success": true,
+      "details": "Correct success message: Submission deleted successfully"
+    },
+    {
+      "test": "Verify Submission Removed After Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submission Removal Verification",
+      "success": true,
+      "details": "Submission successfully removed from exam submissions list"
+    },
+    {
+      "test": "Check Re-evaluation Cascade Deletion",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Re-evaluation Cascade Deletion",
+      "success": true,
+      "details": "Related re-evaluation requests successfully deleted"
+    },
+    {
+      "test": "Delete Submission - No Authentication",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Submission - Student Role (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Delete Submission - Different Teacher (should fail)",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Cleanup Permission Test Submission",
+      "success": false,
+      "details": "Request failed: HTTPSConnectionPool(host='smart-grader-10.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/submissions/perm_test_sub_1769408357 (Caused by ConnectTimeoutError(<HTTPSConnection(host='smart-grader-10.preview.emergentagent.com', port=443) at 0xfeb9768e4810>, 'Connection to smart-grader-10.preview.emergentagent.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "test": "Delete Non-existent Submission",
+      "success": false,
+      "details": "Request failed: HTTPSConnectionPool(host='smart-grader-10.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/submissions/fake_submission_123 (Caused by ConnectTimeoutError(<HTTPSConnection(host='smart-grader-10.preview.emergentagent.com', port=443) at 0xfeb9768e6690>, 'Connection to smart-grader-10.preview.emergentagent.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "test": "Delete Already Deleted Submission",
+      "success": false,
+      "details": "Request failed: HTTPSConnectionPool(host='smart-grader-10.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/submissions/delete_test_sub_1769408357 (Caused by ConnectTimeoutError(<HTTPSConnection(host='smart-grader-10.preview.emergentagent.com', port=443) at 0xfeb9768fc790>, 'Connection to smart-grader-10.preview.emergentagent.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "test": "Get Exam Details for Submission Count",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Get Current Submissions Count",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Submission Count After Deletions",
+      "success": true,
+      "details": "Current submission count: 2"
+    },
+    {
+      "test": "Submission Count Consistency",
+      "success": true,
+      "details": "Submission count consistent with performed deletions"
+    },
+    {
+      "test": "Verify Re-evaluations Exist Before Cleanup",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Re-evaluations Exist Before Cleanup",
+      "success": true,
+      "details": "Found 2 re-evaluation requests"
+    },
+    {
+      "test": "Delete Submission with Related Data",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Verify Re-evaluations Cleaned Up",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Re-evaluation Cleanup Verification",
+      "success": true,
+      "details": "All related re-evaluation requests successfully deleted"
+    },
+    {
+      "test": "Verify Submission Completely Removed",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Complete Submission Removal",
+      "success": true,
+      "details": "Submission completely removed from all listings"
+    },
+    {
+      "test": "Create Exam for Background Grading Test",
+      "success": false,
+      "details": "Request failed: HTTPSConnectionPool(host='smart-grader-10.preview.emergentagent.com', port=443): Max retries exceeded with url: /api/exams (Caused by ConnectTimeoutError(<HTTPSConnection(host='smart-grader-10.preview.emergentagent.com', port=443) at 0xfeb9768e7450>, 'Connection to smart-grader-10.preview.emergentagent.com timed out. (connect timeout=10)'))"
+    },
+    {
+      "test": "Create Exam for Teacher Upload Workflow",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Student-Upload Mode Exam",
+      "success": false,
+      "details": "Expected 200, got 422 - [{'type': 'missing', 'loc': ['body', 'exam_data'], 'msg': 'Field required', 'input': None, 'url': 'https://errors.pydantic.dev/2.12/v/missing'}]"
+    },
+    {
+      "test": "Test Non-existent Exam Submission Status",
+      "success": true,
+      "details": ""
+    }
+  ]
+}

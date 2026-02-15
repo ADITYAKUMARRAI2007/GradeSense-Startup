@@ -1,0 +1,83 @@
+{
+  "timestamp": "2026-01-02T07:15:58.693558",
+  "total_tests": 15,
+  "passed_tests": 12,
+  "success_rate": 80.0,
+  "test_details": [
+    {
+      "test": "Create Test Batch",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Test Subject",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Test Student",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Create Test Exam",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Analytics: Misconceptions Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Misconceptions Response Structure",
+      "success": false,
+      "details": "Missing fields: ['exam_name', 'total_submissions', 'ai_analysis']"
+    },
+    {
+      "test": "Topic Mastery: With Exam Filter",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Topic Mastery Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Student Deep Dive: Basic Analysis",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Student Deep Dive Response Structure",
+      "success": false,
+      "details": "Missing fields: ['overall_average']"
+    },
+    {
+      "test": "Generate Review Packet",
+      "success": false,
+      "details": "Expected 200, got 400 - No submissions found for this exam"
+    },
+    {
+      "test": "Auto-Infer Topic Tags",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Infer Topics Response Structure",
+      "success": true,
+      "details": "All required fields present"
+    },
+    {
+      "test": "Update Question Topics",
+      "success": true,
+      "details": ""
+    },
+    {
+      "test": "Update Topics Response",
+      "success": true,
+      "details": "Success message: Topic tags updated successfully"
+    }
+  ]
+}
