@@ -16,7 +16,7 @@ db = client["gradesense"]
 sub = db.submissions.find_one({"status": "graded"}, sort=[("created_at", -1)])
 if not sub:
     import pytest
-    pytest.skip("No graded submission found — skipping integration regrade test")
+    pytest.skip("No graded submission found — skipping integration regrade test", allow_module_level=True)
 
 sub_id = sub["submission_id"]
 exam_id = sub["exam_id"]

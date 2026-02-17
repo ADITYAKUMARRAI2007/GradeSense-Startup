@@ -16,7 +16,7 @@ db = client["gradesense"]
 sub = db.submissions.find_one({"status": {"$in": ["graded", "ai_graded"]}, "file_images.0": {"$exists": True}})
 if not sub:
     import pytest
-    pytest.skip("No graded submission with images found — skipping OCR/line-id verification")
+    pytest.skip("No graded submission with images found — skipping OCR/line-id verification", allow_module_level=True)
 
 images = sub.get("file_images", sub.get("images", []))
 scores = sub.get("question_scores", sub.get("scores", []))
