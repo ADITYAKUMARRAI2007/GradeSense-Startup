@@ -307,8 +307,11 @@ def _draw_margin_comment(draw: ImageDraw.Draw, x: int, y: int, text: str, color:
     font = _get_font(font_size)
     
     # Position: right margin (past the main text area)
-    margin_x = max(x, int(img_w * 0.78)) if img_w > 0 else x
-    
+    # Respect an explicit x coordinate when callers provide one (places note
+    # next to the score circle). If no sensible x is provided, fall back to
+    # the usual right-margin placement.
+    margin_x = x if (x and x > 0) else (int(img_w * 0.78) if img_w > 0 else x)
+
     # Trim long text
     display_text = text.strip()
     if len(display_text) > 40:
