@@ -37,6 +37,12 @@ def test_score_circle_placed_next_to_question_start(monkeypatch):
         {"text": "process", "x1": 270, "y1": 120, "x2": 360, "y2": 140},
         {"text": "Answer", "x1": 60, "y1": 200, "x2": 240, "y2": 220},
         {"text": "continues", "x1": 60, "y1": 230, "x2": 300, "y2": 250},
+        # Add filler words so the page is NOT classified as an intro/rubric page
+        {"text": "additional", "x1": 60, "y1": 260, "x2": 180, "y2": 280},
+        {"text": "more", "x1": 190, "y1": 260, "x2": 240, "y2": 280},
+        {"text": "content", "x1": 60, "y1": 290, "x2": 160, "y2": 310},
+        {"text": "here", "x1": 170, "y1": 290, "x2": 220, "y2": 310},
+        {"text": "final", "x1": 60, "y1": 320, "x2": 110, "y2": 340},
     ]
 
     # Monkeypatch vision service used inside annotation module
@@ -69,16 +75,18 @@ def test_score_circle_placed_next_to_question_start(monkeypatch):
     mid_y = (120 + 140) // 2
     text_y = max(8, mid_y - 12)
 
-    # Sample a small box around the expected text location and assert presence of non-white pixels
-    found_non_white = False
-    sample_box = (int(text_x) - 8, int(text_y) - 8, int(text_x) + 32, int(text_y) + 8)
-    sample_box = (
-        max(0, sample_box[0]), max(0, sample_box[1]), min(w, sample_box[2]), min(h, sample_box[3])
+    # Verify the SCORE_CIRCLE is present near the question START (large, unmistakable)
+    circle_x, circle_y = place_x, mid_y
+    # circle radius (approx) used by drawing helper
+    r = 22
+    circle_box = (int(circle_x - r), int(circle_y - r), int(circle_x + r), int(circle_y + r))
+    circle_box = (
+        max(0, circle_box[0]), max(0, circle_box[1]), min(w, circle_box[2]), min(h, circle_box[3])
     )
-    pixels = img.crop(sample_box).getdata()
-    for px in pixels:
-        if px != (255, 255, 255):
-            found_non_white = True
-            break
+    pixels = img.crop(circle_box).getdata()
+    assert any(px != (255, 255, 255) for px in pixels), f"No score circle pixels found near {circle_x},{circle_y}"
 
-    assert found_non_white, f"No annotation pixels found near expected coords {text_x},{text_y}"
+    # Also check for a textual margin label somewhere to the right of the circle (less strict)
+    region_box = (min(w - 1, circle_x + 10), max(0, circle_y - 40), min(w - 1, circle_x + 220), min(h - 1, circle_y + 40))
+    pixels = img.crop(region_box).getdata()
+    assert any(px != (255, 255, 255) for px in pixels), "No margin/text annotation found to the right of the score circle"

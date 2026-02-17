@@ -388,11 +388,17 @@ async def generate_annotated_images_with_vision_ocr(
                 question_last_line[current_q_local] = (p_idx, li, line)
 
         page_text = " ".join(w.get("text", "") for w in words).lower()
-        is_intro = bool(
+        basic_intro = bool(
             re.search(r"(rubric|evaluation|parameter|marking\s+scheme|header|instruction|next\s+page|test\s+case|turn\s+to|answer\s+key)", page_text)
             or (len(line_boxes) < 3)
             or (len(words) < 10)
         )
+        # If a question header (Qn) appears on the page, treat it as an answer page
+        has_question_header = any(
+            any(pat.match((line.get("text") or "").strip()) for pat in question_patterns.values())
+            for line in line_boxes
+        )
+        is_intro = basic_intro and not has_question_header
 
         pages_ocr[p_idx] = {
             "words": words,
