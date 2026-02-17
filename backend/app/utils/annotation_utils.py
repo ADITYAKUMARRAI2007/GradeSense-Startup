@@ -95,7 +95,7 @@ def apply_annotations_to_image(image_base64: str, annotations: List[Annotation])
                 _draw_highlight_box(draw, x, y, w, h, color)
 
             elif ann.annotation_type in (AnnotationType.COMMENT, AnnotationType.MARGIN_NOTE):
-                _draw_margin_comment(draw, x, y, ann.text, color, ann.size, img_w)
+                _draw_margin_comment(draw, x, y, ann.text, color, ann.size, img_w, img_h)
 
             elif ann.annotation_type == AnnotationType.POINT_NUMBER:
                 _draw_text(draw, x, y, ann.text, color, ann.size)
@@ -253,31 +253,47 @@ def _draw_underline(draw: ImageDraw.Draw, x: int, y: int, width: int, color: str
 
 def _draw_highlight_box(draw: ImageDraw.Draw, x: int, y: int, w: int, h: int, color: str):
     """
-    Draw a bracket/box around text — like an examiner circling or bracketing a section.
-    Semi-transparent fill + solid border.
+    Draw a highlighted box around text — green for correct, red for errors.
+    Visible semi-transparent fill + solid border, like a real examiner's
+    highlighter pen over text.
     """
     rgba = _parse_color(color)
-    # Semi-transparent fill
-    fill_rgba = (rgba[0], rgba[1], rgba[2], 25)
-    border_rgba = (rgba[0], rgba[1], rgba[2], 180)
-    
+    is_green = rgba[1] > rgba[0] and rgba[1] > rgba[2]
+
+    # Noticeable fill — like a real highlighter
+    if is_green:
+        fill_rgba = (0, 200, 0, 40)       # green highlight
+        border_rgba = (0, 150, 0, 200)
+    else:
+        fill_rgba = (220, 30, 30, 35)      # red highlight
+        border_rgba = (220, 30, 30, 200)
+
     pad = 4
     draw.rectangle(
         [(x - pad, y - pad), (x + w + pad, y + h + pad)],
         fill=fill_rgba, outline=border_rgba, width=2
     )
-    # Draw corner brackets for emphasis (like a teacher would mark)
-    bracket_len = min(12, w // 4, h // 4)
+    # Corner brackets for emphasis
+    bracket_len = min(14, w // 3, h // 3)
+    if bracket_len < 4:
+        bracket_len = 4
     bw = 3
-    # Top-left bracket
+    # Top-left
     draw.line([(x - pad, y - pad), (x - pad + bracket_len, y - pad)], fill=border_rgba, width=bw)
     draw.line([(x - pad, y - pad), (x - pad, y - pad + bracket_len)], fill=border_rgba, width=bw)
-    # Bottom-right bracket
+    # Top-right
+    draw.line([(x + w + pad, y - pad), (x + w + pad - bracket_len, y - pad)], fill=border_rgba, width=bw)
+    draw.line([(x + w + pad, y - pad), (x + w + pad, y - pad + bracket_len)], fill=border_rgba, width=bw)
+    # Bottom-left
+    draw.line([(x - pad, y + h + pad), (x - pad + bracket_len, y + h + pad)], fill=border_rgba, width=bw)
+    draw.line([(x - pad, y + h + pad), (x - pad, y + h + pad - bracket_len)], fill=border_rgba, width=bw)
+    # Bottom-right
     draw.line([(x + w + pad, y + h + pad), (x + w + pad - bracket_len, y + h + pad)], fill=border_rgba, width=bw)
     draw.line([(x + w + pad, y + h + pad), (x + w + pad, y + h + pad - bracket_len)], fill=border_rgba, width=bw)
 
 
-def _draw_margin_comment(draw: ImageDraw.Draw, x: int, y: int, text: str, color: str, size: int, img_w: int):
+def _draw_margin_comment(draw: ImageDraw.Draw, x: int, y: int, text: str, color: str,
+                         size: int, img_w: int, img_h: int):
     """
     Draw examiner's comment in the RIGHT MARGIN — like a real teacher writes
     short notes in the margin. Small, neat, in red/green ink.
@@ -295,28 +311,61 @@ def _draw_margin_comment(draw: ImageDraw.Draw, x: int, y: int, text: str, color:
     
     # Trim long text
     display_text = text.strip()
-    if len(display_text) > 30:
-        display_text = display_text[:28] + ".."
+    if len(display_text) > 40:
+        display_text = display_text[:38] + ".."
+
+    # Break after 3-4 words per line (smart wrapping)
+    words = display_text.split()
+    lines = []
+    word_count = 0
+    current_line = []
     
-    # Draw with slight background for readability
-    try:
-        bbox = font.getbbox(display_text)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-    except Exception:
-        tw, th = len(display_text) * 7, 14
+    for word in words:
+        if word_count < 4:
+            current_line.append(word)
+            word_count += 1
+        else:
+            # Start new line after 4 words
+            if current_line:
+                lines.append(" ".join(current_line))
+            current_line = [word]
+            word_count = 1
     
-    # Ensure it fits on image
-    if img_w > 0 and margin_x + tw > img_w - 5:
-        margin_x = max(5, img_w - tw - 8)
+    if current_line:
+        lines.append(" ".join(current_line))
     
+    # Limit to 3 lines total
+    lines = lines[:3]
+
+    # Measure size
+    line_sizes = []
+    for line in lines:
+        try:
+            bbox = font.getbbox(line)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+        except Exception:
+            tw, th = len(line) * 7, 14
+        line_sizes.append((tw, th))
+
+    max_tw = max(tw for tw, _ in line_sizes) if line_sizes else 0
+    line_h = max(th for _, th in line_sizes) if line_sizes else 14
+    total_h = line_h * len(lines) + (len(lines) - 1) * 2
+
+    # Ensure it fits on image (x and y)
+    if img_w > 0 and margin_x + max_tw > img_w - 5:
+        margin_x = max(5, img_w - max_tw - 8)
+    if img_h > 0 and y + total_h + 2 > img_h - 5:
+        y = max(5, img_h - total_h - 6)
+
     # Light semi-transparent background
     bg_rgba = (255, 255, 240, 140)
     draw.rectangle(
-        [(margin_x - 2, y - 1), (margin_x + tw + 3, y + th + 2)],
+        [(margin_x - 2, y - 1), (margin_x + max_tw + 3, y + total_h + 2)],
         fill=bg_rgba
     )
-    draw.text((margin_x, y), display_text, fill=rgba, font=font)
+    for idx, line in enumerate(lines):
+        draw.text((margin_x, y + idx * (line_h + 2)), line, fill=rgba, font=font)
 
 
 def _draw_text(draw: ImageDraw.Draw, x: int, y: int, text: str, color: str, size: int):

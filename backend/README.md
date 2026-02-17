@@ -107,7 +107,6 @@ Create a `.env` file in `backend/`:
 
 ```env
 # MongoDB (required)
-MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/
 DB_NAME=gradesense
 
 # Google Gemini API (required for grading)

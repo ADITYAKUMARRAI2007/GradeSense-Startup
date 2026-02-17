@@ -460,7 +460,8 @@ Return ONLY valid JSON:
                     "line_id_end": "Q1-L4",
           "annotation_type": "TICK|CROSS|UNDERLINE|COMMENT|BOX",
           "short_label": "2-4 word abbreviation (REQUIRED). Use terse examiner shorthand: 'Good pt', 'Correct defn', 'Wrong date', 'Vague', 'Incomplete', 'Key term missing', 'Nice eg', 'Irrelevant'",
-          "sentiment": "positive|negative"
+          "sentiment": "positive|negative",
+          "color": "green (for correct/positive BOX) or red (for errors/negative BOX)"
         }}
       ],
       "sub_scores": [
@@ -482,12 +483,19 @@ Return ONLY valid JSON:
 3. sub_scores required for sub-questions; SUM(sub_scores) = main obtained_marks
 4. ai_feedback must be improvement-focused and actionable
 5. confidence must be between 0.0 and 1.0
-6. **MAX 10 ANNOTATIONS PER PAGE**
-7. **IGNORE PRINTED QUESTIONS** - Only annotate handwritten answers
-8. **BOX COMMENTS**: 2-4 word abbreviated feedback
-9. Use line_id_start/line_id_end from the provided LINE ID MAP (OCR). If single line, set both to the same value.
-10. **short_label is REQUIRED for EVERY annotation** — use terse 2-4 word examiner shorthand. TICK: 'Good pt', 'Correct defn', 'Nice eg'. CROSS: 'Wrong', 'Factual error', 'Incorrect'. BOX: 'Incomplete', 'Vague', 'Needs detail'. NEVER repeat the same label on consecutive annotations — if multiple lines share the same reason, use ONE annotation with line_id_start/line_id_end spanning all of them.
-11. **NO DUPLICATE ANNOTATIONS** — if the same reason applies to lines Q1-L3 through Q1-L6, create ONE annotation with line_id_start="Q1-L3" and line_id_end="Q1-L6". Do NOT create 4 separate annotations with the same label.
+6. **SKIP INTRO/RUBRIC/HEADER PAGES** — Pages at the START showing: exam headers, rubric tables, evaluation parameters, instructions, blank pages = DO NOT ANNOTATE AT ALL. Only annotate pages containing actual handwritten ANSWERS to questions.
+7. **PROVIDE 7-15 ANNOTATIONS PER ANSWER PAGE** — Only for pages with actual answer content. Spread marks across entire page (top, middle, bottom), not clustered.
+8. **IGNORE PRINTED QUESTIONS** - Only annotate handwritten answers
+9. **USE BOXES + MIXED FEEDBACK** — Boxes are primary. Generate BALANCED feedback: praise good points (GREEN BOXES) AND point out improvement areas (RED BOXES). Do NOT make feedback one-sided. Mix 50-60% positive, 40-50% constructive criticism. Every answer needs BOTH types of feedback. Feedback MUST be UPSC-exam-level detailed (not generic).
+10. Use line_id_start/line_id_end from the provided LINE ID MAP (OCR). If single line, set both to the same value.
+11. **UPSC-LEVEL MIXED FEEDBACK (REQUIRED for EVERY annotation)** — Use detailed, specific feedback explaining WHY. Generate BALANCED annotations: roughly 50-60% strengths (GREEN), 40-50% improvement areas (RED). Examples:
+    - ✅ GREEN feedback (strengths): 'Correct mechanism', 'Well-explained with act reference', 'Good constitutional basis', 'Relevant historical example', 'Proper case law cited', 'Accurate data point', 'Strong substantiation'
+    - ❌ RED feedback (improvements): 'Factual error - Act does not provide this', 'Incomplete list of artifacts', 'Missed constitutional provision', 'Vague on mechanism', 'Missing critical example', 'Needs more substantiation', 'Should mention schedule/article', 'Lacks contextual clarity'
+    - CRITICAL: In EVERY answer, provide BOTH praise AND constructive criticism. Do NOT make feedback one-sided.
+12. **NO DUPLICATE ANNOTATIONS** — if the same reason applies to lines Q1-L3 through Q1-L6, create ONE annotation with line_id_start="Q1-L3" and line_id_end="Q1-L6".
+13. **COLOR STRICT RULE**: Use color="green" ONLY for correct/positive content. Use color="red" ONLY when there IS an actual error/mistake that needs correction.
+14. **MULTI-PAGE ANSWER COVERAGE**: When answer spans multiple answer pages, you MUST annotate EVERY answer page. Do NOT cluster all annotations on first page only.
+15. **NO ANNOTATIONS ON INTRO PAGES**: Pages showing exam headers, registration tables, rubric tables, marking schemes, instructions, blank separator pages = ZERO ANNOTATIONS. These remain completely unmodified.
 
 ## QUALITY ASSURANCE CHECKLIST
 - ARITHMETIC CHECK: no question exceeds max marks
@@ -1183,9 +1191,15 @@ Return valid JSON only."""
             if question_obtained_marks is None:
                 question_obtained_marks = 0.0
         
-        # Extract question-level annotations
-        q_annotations = best_score_data.get("annotations", [])
-        annotations_list = normalize_ai_annotations(q_annotations)
+        # Extract question-level annotations from ALL chunks (not just best)
+        # This ensures multi-page answers get annotations from every chunk
+        all_q_annotations = []
+        for chunk_result in all_chunk_results:
+            chunk_q_data = next((s for s in chunk_result if s["question_number"] == q_num), None)
+            if chunk_q_data:
+                chunk_anns = chunk_q_data.get("annotations", [])
+                all_q_annotations.extend(chunk_anns)
+        annotations_list = normalize_ai_annotations(all_q_annotations)
         if not annotations_list and status == "graded":
             annotations_list = [
                 AnnotationData(

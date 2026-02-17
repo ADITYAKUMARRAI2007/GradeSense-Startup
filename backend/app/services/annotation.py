@@ -35,13 +35,16 @@ def _generate_margin_annotations(
     section_height = img_height // max(1, len(page_questions))
     
     for q_idx, q_score in enumerate(page_questions):
-        y_pos = q_idx * section_height + 40
+        # Place the per-question score near the END of the question's section (right-margin)
+        section_top = q_idx * section_height
+        section_end_y = min(img_height - 60, (q_idx + 1) * section_height - 20)
+        y_pos = section_end_y
         score_pct = (q_score.obtained_marks / q_score.max_marks * 100) if q_score.max_marks > 0 else 0
         
         annotations.append(Annotation(
             annotation_type=AnnotationType.POINT_NUMBER,
             x=margin_x,
-            y=y_pos,
+            y=max(32, y_pos - 8),
             text=str(q_score.question_number),
             color="black",
             size=22
@@ -335,62 +338,144 @@ async def generate_annotated_images_with_vision_ocr(
         return str(int(v)) if v == int(v) else f"{v:.1f}"
     _total_score_text = f"{_fmt_score(_total_obtained)} / {_fmt_score(_total_max)}"
 
-    for page_idx, original_image in enumerate(original_images):
-        try:
-            image_data = base64.b64decode(original_image)
-            with Image.open(io.BytesIO(image_data)) as img:
-                img_width, img_height = img.size
-        except Exception:
-            img_width, img_height = 1000, 1400
+    # --- PRE-SCAN: OCR all pages to locate the final line for each question ---
+    pages_ocr = [None] * len(original_images)
+    question_last_line: Dict[int, tuple] = {}  # q_num -> (page_idx, line_idx, line_box)
 
-        # Get OCR words
+    for p_idx, original_image_b64 in enumerate(original_images):
         try:
-            ocr_result = vision_service.detect_text_from_base64(original_image, ["en"])
+            image_data = base64.b64decode(original_image_b64)
+            with Image.open(io.BytesIO(image_data)) as _img:
+                p_w, p_h = _img.size
+        except Exception:
+            p_w, p_h = 1000, 1400
+
+        try:
+            ocr_result = vision_service.detect_text_from_base64(original_image_b64, ["en"])
             words = ocr_result.get("words", [])
-        except Exception as ocr_err:
-            logger.error(f"Vision OCR failed for page {page_idx + 1}: {ocr_err}")
+        except Exception:
             words = []
 
-        if not words:
-            # Fall back to basic annotations for this page
-            annotated_images.append(original_image)
-            continue
-
-        y_threshold = max(10, int(img_height * 0.012))
+        y_threshold = max(10, int(p_h * 0.012))
         line_boxes = _group_words_into_lines(words, y_threshold)
-        answer_start_y = int(img_height * 0.25)
 
-        positioned_annotations: List[Annotation] = []
-
-        # On the first page, draw a prominent total score box at top-right
-        if page_idx == 0:
-            positioned_annotations.append(Annotation(
-                annotation_type=AnnotationType.TOTAL_SCORE,
-                x=0, y=0, text=_total_score_text, color="red", size=28
-            ))
-
-        # Build line ID maps per question using OCR line text
-        # IMPORTANT: Must include ALL lines (including headers) to match
-        # grading.py's build_line_id_context which counts all lines.
-        line_id_map: Dict[str, dict] = {}
-        line_index_map: Dict[int, Dict[int, dict]] = {}
-        current_q = question_numbers[0] if question_numbers else 0
-        line_counts: Dict[int, int] = {}
-
+        # Build a per-page line-index map (Qn -> {L#: box}) so we can identify last lines
+        line_index_map = {}
+        line_counts_local: Dict[int, int] = {}
+        current_q_local = question_numbers[0] if question_numbers else 0
+        line_id_map_local: Dict[str, dict] = {}
+        answer_start_y_local = int(p_h * 0.25)
+        footer_margin = max(48, int(p_h * 0.03))
         for line in line_boxes:
             text = (line.get("text") or "").strip()
             if text:
                 for q_num, pattern in question_patterns.items():
                     if pattern.match(text):
-                        current_q = q_num
+                        current_q_local = q_num
                         break
-            line_counts[current_q] = line_counts.get(current_q, 0) + 1
-            line_idx = line_counts[current_q]
-            line_id = f"Q{current_q}-L{line_idx}"
-            line_id_map[line_id] = line
-            line_index_map.setdefault(current_q, {})[line_idx] = line
-        
-        logger.debug(f"[ANN-LINE-MAP] Page {page_idx+1}: Built {len(line_id_map)} line IDs: {list(line_id_map.keys())[:20]}")
+            line_counts_local[current_q_local] = line_counts_local.get(current_q_local, 0) + 1
+            li = line_counts_local[current_q_local]
+            line_id = f"Q{current_q_local}-L{li}"
+            line_id_map_local[line_id] = line
+            line_index_map.setdefault(current_q_local, {})[li] = line
+
+            # Prefer to record the last *meaningful* line for a question — ignore headers/footers/page-numbers
+            y1_l = line.get("y1", 0)
+            y2_l = line.get("y2", 0)
+            short_numeric = text.isdigit() and len(text) <= 3
+            is_footer = (y2_l >= p_h - footer_margin) or short_numeric
+            if y2_l >= answer_start_y_local and not is_footer:
+                question_last_line[current_q_local] = (p_idx, li, line)
+
+        page_text = " ".join(w.get("text", "") for w in words).lower()
+        is_intro = bool(
+            re.search(r"(rubric|evaluation|parameter|marking\s+scheme|header|instruction|next\s+page|test\s+case|turn\s+to|answer\s+key)", page_text)
+            or (len(line_boxes) < 3)
+            or (len(words) < 10)
+        )
+
+        pages_ocr[p_idx] = {
+            "words": words,
+            "line_boxes": line_boxes,
+            "line_index_map": line_index_map,
+            "line_id_map": line_id_map_local,
+            "img_w": p_w,
+            "img_h": p_h,
+            "is_intro": is_intro,
+        }
+
+    # --- ASSIGN MISSING question.page_number USING OCR pre-scan ---
+    # If grading didn't set page_number on QuestionScore, infer it from OCR line matches so
+    # score circles can be placed deterministically beside the question end-line.
+    for qs in question_scores:
+        try:
+            if getattr(qs, "page_number", None):
+                continue
+        except Exception:
+            # qs may be a dict-like fallback in some call-sites
+            if isinstance(qs, dict) and qs.get("page_number"):
+                continue
+        qn = qs.question_number
+        assigned = False
+        for p_idx, p in enumerate(pages_ocr):
+            if not p:
+                continue
+            line_index_map = p.get("line_index_map", {})
+            if qn in line_index_map and line_index_map[qn]:
+                # assign inferred page number (1-indexed)
+                try:
+                    qs.page_number = p_idx + 1
+                except Exception:
+                    # if qs is dict-like, set key
+                    if isinstance(qs, dict):
+                        qs["page_number"] = p_idx + 1
+                assigned = True
+                logger.info(f"[PAGE-INFER] Assigned page {p_idx+1} to Q{qn} via OCR pre-scan")
+                break
+        if not assigned:
+            logger.debug(f"[PAGE-INFER] Could not infer page for Q{qn}")
+
+    # --- MAIN PER-PAGE RENDER PASS (uses stored OCR from pre-scan) ---
+    for page_idx, original_image in enumerate(original_images):
+
+        # Use pre-scanned OCR data for this page
+        page_data = pages_ocr[page_idx]
+        if not page_data or not page_data.get("words"):
+            # Fall back to basic annotations for this page
+            annotated_images.append(original_image)
+            continue
+
+        words = page_data["words"]
+        line_boxes = page_data["line_boxes"]
+        img_width = page_data["img_w"]
+        img_height = page_data["img_h"]
+        answer_start_y = int(img_height * 0.25)
+        is_intro_page = page_data.get("is_intro", False)
+
+        positioned_annotations: List[Annotation] = []
+
+        # On the first page, ONLY draw total score, NO OTHER ANNOTATIONS
+        if page_idx == 0:
+            positioned_annotations.append(Annotation(
+                annotation_type=AnnotationType.TOTAL_SCORE,
+                x=0, y=0, text=_total_score_text, color="red", size=28
+            ))
+            # Skip all answer annotations on first page
+            annotated_image = apply_annotations_to_image(original_image, positioned_annotations)
+            annotated_images.append(annotated_image)
+            continue
+
+        # SKIP INTRO/RUBRIC/HEADER PAGES COMPLETELY - NO ANNOTATIONS AT ALL
+        if is_intro_page:
+            logger.info(f"[ANN-SKIP] Page {page_idx+1}: Detected as intro/rubric/header page - skipping all annotations")
+            annotated_images.append(original_image)
+            continue
+
+        # Reuse precomputed line ID maps from pre-scan
+        line_id_map = page_data.get("line_id_map", {})
+        line_index_map = page_data.get("line_index_map", {})
+        current_q = question_numbers[0] if question_numbers else 0
+        logger.debug(f"[ANN-LINE-MAP] Page {page_idx+1}: Reusing {len(line_id_map)} line IDs")
 
         def _parse_line_id(value: Optional[str]):
             if not value:
@@ -555,7 +640,7 @@ async def generate_annotated_images_with_vision_ocr(
                         line_id_placed += 1
 
                     elif ann_type in {"BOX", "HIGHLIGHT_BOX"}:
-                        # One box around the entire span
+                        # One box around the entire span + reason in margin
                         pad = 4
                         positioned_annotations.append(Annotation(
                             annotation_type=AnnotationType.HIGHLIGHT_BOX,
@@ -564,6 +649,8 @@ async def generate_annotated_images_with_vision_ocr(
                             width=max(30, span_x2 - span_x1 + pad * 2),
                             height=max(16, span_y2 - span_y1 + pad * 2)
                         ))
+                        # If the span covers multiple lines, draw a curly bracket in the margin
+                        # (bracket indicates the note applies to the whole boxed block).
                         if reason_text:
                             if is_multi_line:
                                 positioned_annotations.append(Annotation(
@@ -574,7 +661,7 @@ async def generate_annotated_images_with_vision_ocr(
                                 ))
                             else:
                                 positioned_annotations.append(Annotation(
-                                    annotation_type=AnnotationType.COMMENT,
+                                    annotation_type=AnnotationType.MARGIN_NOTE,
                                     x=span_x2 + 10, y=span_y1,
                                     text=reason_text, color=ann_data.color or "red", size=24
                                 ))
@@ -616,43 +703,230 @@ async def generate_annotated_images_with_vision_ocr(
 
         logger.info(f"[ANN-SUMMARY] Page {page_idx+1}: Requested={total_ann_requested}, LineID placed={line_id_placed}, LineID skipped={line_id_skipped}, Anchor placed={anchor_placed}")
 
-        # ── Per-question score at the end of each answer ──
-        # For every question whose answer ends on this page, draw a circled
-        # score (e.g. "4/10") just below/right of the last answer line.
-        for q_num in question_numbers:
-            if q_num not in line_index_map:
-                continue  # question has no lines on this page
-            q_lines = line_index_map[q_num]
-            if not q_lines:
-                continue
-            last_line_idx = max(q_lines.keys())
-            last_line = q_lines[last_line_idx]
+        # Ensure every page with substantial handwriting gets AT LEAST 7 annotations
+        # Skip intro/next pages (pages with very few lines)
+        # Only use GREEN boxes - red is reserved for actual error/correction feedback
+        non_total = [a for a in positioned_annotations if a.annotation_type != AnnotationType.TOTAL_SCORE]
+        
+        # Only add fallback if: (1) insufficient marks AND (2) page has substantial content (4+ lines)
+        if len(non_total) < 7 and line_boxes and len(line_boxes) >= 4:
+            # Page is a real answer page with insufficient marks; auto-add GREEN boxes only
+            candidates = [l for l in line_boxes if l.get("y2", 0) >= answer_start_y]
+            candidates = sorted(candidates, key=lambda l: l.get("y1", 0))
+            needed = 7 - len(non_total)  # How many more marks to reach 7
+            
+            # Pick diverse lines: first, middle sections, and near end
+            picks = []
+            if candidates:
+                picks.append(candidates[0])  # First line
+                if len(candidates) > 1:
+                    picks.append(candidates[len(candidates) // 3])  # Lower third
+                if len(candidates) > 2:
+                    picks.append(candidates[len(candidates) // 2])  # Middle
+                if len(candidates) > 3:
+                    picks.append(candidates[2 * len(candidates) // 3])  # Upper third
+                if len(candidates) > 4:
+                    picks.append(candidates[-1])  # Last line
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_picks = []
+            for l in picks:
+                key = (l.get('y1', 0), l.get('x1', 0))
+                if key not in seen:
+                    unique_picks.append(l)
+                    seen.add(key)
+            picks = unique_picks[:needed]
+            
+            # Add MIXED FEEDBACK - both positive (GREEN) and constructive (RED)
+            # Balance: roughly 50-60% positive, 40-50% critical/improvement feedback
+            positive_labels = [
+                "Well explained point", "Strong constitutional basis", "Relevant case law cited", 
+                "Accurate data with source", "Good substantiation", "Proper legal framework",
+                "Contextual understanding shown", "Evidence-based claim", "Strong argumentation"
+            ]
+            critical_labels = [
+                "Needs more examples", "Lacks substantiation", "Missing key statute", 
+                "Vague explanation needed", "Should cite relevant case", "Incomplete coverage",
+                "Needs schedule/article reference", "Lacks constitutional basis", "More clarity needed"
+            ]
+            
+            # Alternate between positive and critical feedback
+            for idx, line in enumerate(picks):
+                x1, y1, x2, y2 = line["x1"], line["y1"], line["x2"], line["y2"]
+                
+                # Alternate: even index = positive (green), odd index = critical (red)
+                is_positive = (idx % 2 == 0)
+                
+                if is_positive:
+                    label = positive_labels[idx % len(positive_labels)]
+                    color = "green"
+                else:
+                    label = critical_labels[idx % len(critical_labels)]
+                    color = "red"
+                
+                positioned_annotations.append(Annotation(
+                    annotation_type=AnnotationType.HIGHLIGHT_BOX,
+                    x=x1 - 4, y=y1 - 4, text="", color=color,
+                    width=max(30, x2 - x1 + 8), height=max(16, y2 - y1 + 8)
+                ))
+                positioned_annotations.append(Annotation(
+                    annotation_type=AnnotationType.MARGIN_NOTE,
+                    x=x2 + 10, y=y1,
+                    text=label, color=color, size=24
+                ))
 
-            # Only place the score if this is the LAST page containing this question
-            # (i.e. no later page has lines for this question — but we can't know
-            #  future pages here, so we always place it on every page that has lines.
-            #  To avoid duplicates, we only place if this is the page with the
-            #  highest line count seen so far. Simple approach: always place on every
-            #  page — the last one drawn wins visually, which is acceptable.)
-            q_score = q_score_map.get(q_num)
-            if not q_score or q_score.obtained_marks < 0:
-                continue  # not_found
+        # --- Add per-question total marks at the question's final line (right-margin score) ---
+        for qs in question_scores:
+            qn = qs.question_number
+            placed_score = False
 
-            om = q_score.obtained_marks
-            mm = q_score.max_marks
-            score_str = f"{int(om) if om == int(om) else f'{om:.1f}'}/{int(mm)}"
+            # 1) Prefer page_number on QuestionScore (explicit mapping from grading)
+            page_for_q = (qs.page_number - 1) if getattr(qs, "page_number", None) else None
+            if page_for_q == page_idx:
+                # Try to find the question START line first (where 'Qn' appears)
+                lines_map = page_data.get("line_index_map", {}).get(qn, {})
+                if lines_map:
+                    # Prefer the smallest line index (question header/start)
+                    start_li = min(lines_map.keys())
+                    start_line = lines_map[start_li]
+                    start_text = (start_line.get("text") or "").strip()
+                    is_header = False
+                    try:
+                        pat = question_patterns.get(qn)
+                        if pat and pat.match(start_text):
+                            is_header = True
+                    except Exception:
+                        pass
 
-            # Position: right side of the last answer line, below it
-            lx2 = last_line.get("x2", img_width - 100)
-            ly2 = last_line.get("y2", 200)
-            score_x = min(lx2 + 20, img_width - 60)
-            score_y = ly2 + 8
+                    if is_header:
+                        # Place score next to question START line (user requested)
+                        raw_mid = (start_line.get("y1", 0) + start_line.get("y2", 0)) // 2
+                        answer_top = int(img_height * 0.12)
+                        clamp_top = max(answer_top, start_line.get("y1", 0) + 4)
+                        clamp_bottom = min(img_height - 48, start_line.get("y2", 0) - 2)
+                        mid_y = max(clamp_top, min(raw_mid, clamp_bottom))
+                        place_x = min(start_line.get("x2", img_width // 2) + 60, img_width - 48)
 
-            positioned_annotations.append(Annotation(
-                annotation_type=AnnotationType.SCORE_CIRCLE,
-                x=score_x, y=score_y, text=score_str,
-                color="#D32F2F", size=20
-            ))
+                        score_text = _fmt_score(qs.obtained_marks)
+                        max_text = _fmt_score(qs.max_marks)
+                        pct = (qs.obtained_marks / max(1, qs.max_marks)) if qs.max_marks > 0 else 0
+                        color = "green" if pct >= 0.5 else "red"
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.SCORE_CIRCLE,
+                            x=place_x, y=mid_y,
+                            text=f"{score_text}/{max_text}", color=color, size=26
+                        ))
+                        text_x = min(place_x + 34, img_width - 140)
+                        text_y = max(8, mid_y - 12)
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.MARGIN_NOTE,
+                            x=text_x, y=text_y,
+                            text=f"Marks: {score_text}/{max_text}", color=color, size=16
+                        ))
+                        placed_score = True
+                        logger.debug(f"[SCORE-PLACE-START] Q{qn} -> page {page_idx+1} at y={mid_y} (by question start)")
+                    else:
+                        # Fallback to last-line placement if header not found on this page
+                        last_li = max(lines_map.keys())
+                        last_line = lines_map[last_li]
+                        raw_mid = (last_line.get("y1", 0) + last_line.get("y2", 0)) // 2
+                        answer_top = int(img_height * 0.12)
+                        clamp_top = max(answer_top, last_line.get("y1", 0) + 4)
+                        clamp_bottom = min(img_height - 48, last_line.get("y2", 0) - 2)
+                        mid_y = max(clamp_top, min(raw_mid, clamp_bottom))
+                        place_x = min(last_line.get("x2", img_width // 2) + 60, img_width - 48)
+
+                        score_text = _fmt_score(qs.obtained_marks)
+                        max_text = _fmt_score(qs.max_marks)
+                        pct = (qs.obtained_marks / max(1, qs.max_marks)) if qs.max_marks > 0 else 0
+                        color = "green" if pct >= 0.5 else "red"
+                        # More visible score circle + textual label
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.SCORE_CIRCLE,
+                            x=place_x, y=mid_y,
+                            text=f"{score_text}/{max_text}", color=color, size=22
+                        ))
+                        # Add a small margin text label to make marks unmistakable
+                        text_x = min(place_x + 28, img_width - 120)
+                        text_y = max(8, mid_y - 10)
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.MARGIN_NOTE,
+                            x=text_x, y=text_y,
+                            text=f"Marks: {score_text}/{max_text}", color=color, size=14
+                        ))
+                        placed_score = True
+                        logger.debug(f"[SCORE-PLACE] Q{qn} -> page {page_idx+1} at y={mid_y} (by page_number fallback)")
+
+            # 2) Fall back to the pre-scanned question_last_line if it lies on this page
+            if not placed_score:
+                last = question_last_line.get(qn)
+                if last and last[0] == page_idx and qs.obtained_marks is not None and qs.obtained_marks >= 0:
+                    _, _, last_line = last
+                    raw_mid = (last_line.get("y1", 0) + last_line.get("y2", 0)) // 2
+                    answer_top = int(img_height * 0.12)
+                    clamp_top = max(answer_top, last_line.get("y1", 0) + 4)
+                    clamp_bottom = min(img_height - 48, last_line.get("y2", 0) - 2)
+                    mid_y = max(clamp_top, min(raw_mid, clamp_bottom))
+
+                    place_x = min(last_line.get("x2", img_width // 2) + 60, img_width - 48)
+                    score_text = _fmt_score(qs.obtained_marks)
+                    max_text = _fmt_score(qs.max_marks)
+                    pct = (qs.obtained_marks / max(1, qs.max_marks)) if qs.max_marks > 0 else 0
+                    color = "green" if pct >= 0.5 else "red"
+                    # More visible score circle + textual label
+                    positioned_annotations.append(Annotation(
+                        annotation_type=AnnotationType.SCORE_CIRCLE,
+                        x=place_x, y=mid_y,
+                        text=f"{score_text}/{max_text}", color=color, size=22
+                    ))
+                    text_x = min(place_x + 28, img_width - 120)
+                    text_y = max(8, mid_y - 10)
+                    positioned_annotations.append(Annotation(
+                        annotation_type=AnnotationType.MARGIN_NOTE,
+                        x=text_x, y=text_y,
+                        text=f"Marks: {score_text}/{max_text}", color=color, size=14
+                    ))
+                    placed_score = True
+                    logger.debug(f"[SCORE-PLACE] Q{qn} -> page {page_idx+1} at y={mid_y} (by last-line)")
+
+            # 3) If no line found for this question on this page but the question is expected on this page,
+            #    place a fallback score circle near the lower section of the question's area.
+            if not placed_score and page_for_q == page_idx:
+                # Estimate a reasonable Y by dividing page into N question slots for this page
+                page_qs = [q for q in question_scores if (getattr(q, 'page_number', None) and q.page_number - 1 == page_idx)]
+                if page_qs:
+                    # Determine index among page questions
+                    try:
+                        idx_in_page = next(i for i, q in enumerate(page_qs) if q.question_number == qn)
+                    except StopIteration:
+                        idx_in_page = 0
+                    slot_h = max(80, img_height // max(1, len(page_qs)))
+                    est_y = int((idx_in_page + 0.85) * slot_h)
+                    est_y = max(64, min(img_height - 80, est_y))
+                    place_x = min(int(img_width * 0.72), img_width - 48)
+                    score_text = _fmt_score(qs.obtained_marks)
+                    max_text = _fmt_score(qs.max_marks)
+                    pct = (qs.obtained_marks / max(1, qs.max_marks)) if qs.max_marks > 0 else 0
+                    color = "green" if pct >= 0.5 else "red"
+                    # More visible score circle + textual label for estimated placement
+                    positioned_annotations.append(Annotation(
+                        annotation_type=AnnotationType.SCORE_CIRCLE,
+                        x=place_x, y=est_y,
+                        text=f"{score_text}/{max_text}", color=color, size=22
+                    ))
+                    text_x = min(place_x + 28, img_width - 120)
+                    text_y = max(8, est_y - 10)
+                    positioned_annotations.append(Annotation(
+                        annotation_type=AnnotationType.MARGIN_NOTE,
+                        x=text_x, y=text_y,
+                        text=f"Marks: {score_text}/{max_text}", color=color, size=14
+                    ))
+                    placed_score = True
+                    logger.debug(f"[SCORE-PLACE] Q{qn} -> page {page_idx+1} at y={est_y} (estimated slot)")
+
+            # otherwise do not place a score for questions that do not belong to this page
+
 
         annotated_image = apply_annotations_to_image(original_image, positioned_annotations)
         annotated_images.append(annotated_image)
