@@ -28,7 +28,7 @@ export default function LoginPage() {
       try {
         const response = await axios.get(`${API}/auth/me`, { withCredentials: true });
         
-        if (response.data) {
+        if (response?.data && typeof response.data === "object" && response.data.user_id) {
           // User has valid session, redirect to appropriate dashboard
           const redirectPath = response.data.role === "teacher" 
             ? "/teacher/dashboard" 
