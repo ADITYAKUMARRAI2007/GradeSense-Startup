@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnnotationBracket, AnnotationCallout } from "react-annotation";
 
 const RED = "#D32F2F";
 const STYLES = {
@@ -66,6 +65,76 @@ const wrapText = (text, maxChars) => {
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const renderCallout = ({ x, y, dx, dy, color, title, label, wrap = 140 }) => {
+  const textX = x + dx;
+  const textY = y + dy;
+  const maxChars = Math.max(10, Math.floor(wrap / 7));
+  const labelLines = label ? wrapText(label, maxChars) : [];
+  const lines = title ? [title, ...labelLines] : labelLines;
+  if (!lines.length) return null;
+  const lineHeight = 14;
+  const padding = 6;
+  const boxWidth = wrap;
+  const boxHeight = Math.max(24, lines.length * lineHeight + padding * 2);
+  const alignLeft = dx >= 0;
+  const boxX = alignLeft ? textX : textX - boxWidth;
+  const boxY = textY - boxHeight / 2;
+  const anchorX = alignLeft ? boxX : boxX + boxWidth;
+  const textStartX = boxX + padding;
+  const textStartY = boxY + padding + lineHeight - 3;
+
+  return (
+    <g className="handwritten">
+      <path d={`M ${x} ${y} L ${anchorX} ${textY}`} fill="none" stroke={color} strokeWidth="1.5" />
+      <rect
+        x={boxX}
+        y={boxY}
+        width={boxWidth}
+        height={boxHeight}
+        rx="6"
+        ry="6"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.2"
+      />
+      <text x={textStartX} y={textStartY} style={{ fontFamily: STYLES.fontFamily, fontSize: STYLES.fontSize, fill: color }}>
+        {lines.map((line, idx) => (
+          <tspan key={idx} x={textStartX} dy={idx === 0 ? 0 : lineHeight}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+};
+
+const renderBracket = ({ x, y, height, color, title }) => {
+  const h = Math.max(12, height);
+  const w = 12;
+  const textX = x - w - 6;
+  const textY = y + 14;
+  return (
+    <g className="handwritten">
+      <path
+        d={`M ${x} ${y} L ${x - w} ${y} L ${x - w} ${y + h} L ${x} ${y + h}`}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+      />
+      {title ? (
+        <text
+          x={textX}
+          y={textY}
+          textAnchor="end"
+          style={{ fontFamily: STYLES.fontFamily, fontSize: STYLES.fontSize, fill: color }}
+        >
+          {title}
+        </text>
+      ) : null}
+    </g>
+  );
+};
 
 const resolveBox = (ann, width, height) => {
   if (ann?.x_percent !== undefined && ann?.y_percent !== undefined) {
@@ -214,23 +283,18 @@ export default function HandwrittenOverlay({
             const feedback = String(ann.feedback || "").trim();
 
             return (
-              <AnnotationCallout
-                key={`leash-${i}`}
-                x={anchorXpx}
-                y={anchorYpx}
-                dx={dx}
-                dy={dy}
-                color={STYLES.color}
-                note={{
+              <g key={`leash-${i}`}>
+                {renderCallout({
+                  x: anchorXpx,
+                  y: anchorYpx,
+                  dx,
+                  dy,
+                  color: STYLES.color,
                   title,
-                  label: feedback || undefined,
-                  wrap: 140,
-                  align: "middle",
-                  orientation: "leftRight"
-                }}
-                connector={{ type: "line" }}
-                className="handwritten"
-              />
+                  label: feedback || "",
+                  wrap: 140
+                })}
+              </g>
             );
           }
 
@@ -345,21 +409,15 @@ export default function HandwrittenOverlay({
             const title = String(ann.label || ann.short_label || ann.text || "").trim();
 
             return (
-              <AnnotationBracket
-                key={`bracket-${i}`}
-                x={bracketX}
-                y={yStart}
-                height={heightPx}
-                dy={0}
-                dx={-20}
-                color={STYLES.color}
-                note={{
-                  title,
-                  align: "right",
-                  orientation: "leftRight"
-                }}
-                className="handwritten"
-              />
+              <g key={`bracket-${i}`}>
+                {renderBracket({
+                  x: bracketX,
+                  y: yStart,
+                  height: heightPx,
+                  color: STYLES.color,
+                  title
+                })}
+              </g>
             );
           }
 
