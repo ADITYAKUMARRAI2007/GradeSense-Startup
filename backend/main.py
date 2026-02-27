@@ -152,6 +152,8 @@ cors_origins = [origin.strip() for origin in cors_origins_env.split(",")] if cor
 
 # Also accept any devtunnels.ms origin dynamically
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "")
+if FRONTEND_URL:
+    cors_origins.append(FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
