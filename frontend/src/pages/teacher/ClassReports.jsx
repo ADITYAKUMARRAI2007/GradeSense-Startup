@@ -129,7 +129,7 @@ export default function ClassReports({ user }) {
     } finally {
       setLoadingMisconceptions(false);
     }
-  }, [filters.exam_id, filters.batch_id]);
+  }, [filters.exam_id]);
   
   const fetchTopicMastery = useCallback(async () => {
     setLoadingTopicMastery(true);
