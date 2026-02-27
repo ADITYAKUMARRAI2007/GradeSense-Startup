@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, CheckCircle, Clock, XCircle, Trash2, PlayCircle } from 'lucide-react';
@@ -17,11 +17,7 @@ const ExamSubmissionsView = () => {
   const [grading, setGrading] = useState(false);
   const [removing, setRemoving] = useState(null);
 
-  useEffect(() => {
-    fetchSubmissionStatus();
-  }, [examId]);
-
-  const fetchSubmissionStatus = async () => {
+  const fetchSubmissionStatus = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/exams/${examId}/submissions-status`, { 
         withCredentials: true 
@@ -33,7 +29,11 @@ const ExamSubmissionsView = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [examId]);
+
+  useEffect(() => {
+    fetchSubmissionStatus();
+  }, [fetchSubmissionStatus]);
 
   const handleRemoveStudent = async (studentId) => {
     if (!window.confirm('Are you sure you want to remove this student from the exam?')) {

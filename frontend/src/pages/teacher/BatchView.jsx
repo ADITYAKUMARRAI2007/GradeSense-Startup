@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Settings, UserPlus, AlertCircle, TrendingUp, Users, FileText, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
@@ -35,11 +35,7 @@ const BatchView = () => {
     show_question_paper: true
   });
 
-  useEffect(() => {
-    fetchBatchData();
-  }, [batchId]);
-
-  const fetchBatchData = async () => {
+  const fetchBatchData = useCallback(async () => {
     try {
       // Fetch batch details
       const batchRes = await axios.get(`${API}/batches/${batchId}`, { withCredentials: true });
@@ -62,7 +58,11 @@ const BatchView = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [batchId]);
+
+  useEffect(() => {
+    fetchBatchData();
+  }, [fetchBatchData]);
 
   const getExamStatus = (exam) => {
     if (exam.status === 'processing') return { label: 'Grading', color: 'yellow' };

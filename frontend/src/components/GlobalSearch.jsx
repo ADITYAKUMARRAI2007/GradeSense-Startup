@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API } from "../App";
@@ -30,6 +30,18 @@ export default function GlobalSearch({ open, onClose, user }) {
     }
   }, [open]);
 
+  const performSearch = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await axios.post(`${API}/search?query=${encodeURIComponent(query)}`);
+      setResults(response.data);
+    } catch (error) {
+      console.error("Search error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [query]);
+
   useEffect(() => {
     const searchDebounce = setTimeout(() => {
       if (query.length >= 2) {
@@ -40,19 +52,7 @@ export default function GlobalSearch({ open, onClose, user }) {
     }, 300);
 
     return () => clearTimeout(searchDebounce);
-  }, [query]);
-
-  const performSearch = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.post(`${API}/search?query=${encodeURIComponent(query)}`);
-      setResults(response.data);
-    } catch (error) {
-      console.error("Search error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [query, performSearch]);
 
   const handleResultClick = (type, item) => {
     let path = "";

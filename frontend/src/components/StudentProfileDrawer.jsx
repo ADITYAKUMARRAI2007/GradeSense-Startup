@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { X, Download, Mail, TrendingUp, TrendingDown, AlertCircle, CheckCircle } from 'lucide-react';
 import { Line } from 'react-chartjs-2';
@@ -31,11 +31,7 @@ const StudentProfileDrawer = ({ student, batchId, onClose }) => {
   const [studentData, setStudentData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchStudentData();
-  }, [student.student_id]);
-
-  const fetchStudentData = async () => {
+  const fetchStudentData = useCallback(async () => {
     try {
       const response = await axios.get(
         `${API}/students/${student.student_id}/analytics?batch_id=${batchId}`,
@@ -47,7 +43,11 @@ const StudentProfileDrawer = ({ student, batchId, onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [student.student_id, batchId]);
+
+  useEffect(() => {
+    fetchStudentData();
+  }, [fetchStudentData]);
 
   const chartData = {
     labels: studentData?.exam_history?.map(e => e.exam_name) || [],

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, UserPlus, UserMinus, Mail, Search } from 'lucide-react';
@@ -30,11 +30,7 @@ const ManageStudentsInBatch = () => {
   const [newStudentForm, setNewStudentForm] = useState({ name: '', email: '', student_id: '' });
   const [adding, setAdding] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [batchId]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       // Fetch batch details
       const batchRes = await axios.get(`${API}/batches/${batchId}`, { withCredentials: true });
@@ -49,7 +45,11 @@ const ManageStudentsInBatch = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [batchId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const fetchAvailableStudents = async () => {
     try {

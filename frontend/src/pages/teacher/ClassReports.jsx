@@ -85,25 +85,7 @@ export default function ClassReports({ user }) {
   // Question insight modal
   const [selectedQuestionInsight, setSelectedQuestionInsight] = useState(null);
 
-  useEffect(() => {
-    fetchFiltersData();
-  }, []);
-
-  useEffect(() => {
-    fetchReport();
-  }, [filters]);
-  
-  useEffect(() => {
-    if (filters.exam_id) {
-      fetchMisconceptions();
-      fetchTopicMastery();
-    } else {
-      setMisconceptions(null);
-      fetchTopicMastery();
-    }
-  }, [filters.exam_id, filters.batch_id]);
-
-  const fetchFiltersData = async () => {
+  const fetchFiltersData = useCallback(async () => {
     try {
       const [batchesRes, subjectsRes, examsRes] = await Promise.all([
         axios.get(`${API}/batches`),
@@ -116,9 +98,9 @@ export default function ClassReports({ user }) {
     } catch (error) {
       console.error("Error fetching filter data:", error);
     }
-  };
+  }, []);
 
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -133,9 +115,9 @@ export default function ClassReports({ user }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
   
-  const fetchMisconceptions = async () => {
+  const fetchMisconceptions = useCallback(async () => {
     if (!filters.exam_id) return;
     
     setLoadingMisconceptions(true);
@@ -147,9 +129,9 @@ export default function ClassReports({ user }) {
     } finally {
       setLoadingMisconceptions(false);
     }
-  };
+  }, [filters.exam_id, filters.batch_id]);
   
-  const fetchTopicMastery = async () => {
+  const fetchTopicMastery = useCallback(async () => {
     setLoadingTopicMastery(true);
     try {
       const params = new URLSearchParams();
@@ -163,7 +145,25 @@ export default function ClassReports({ user }) {
     } finally {
       setLoadingTopicMastery(false);
     }
-  };
+  }, [filters.batch_id, filters.exam_id]);
+
+  useEffect(() => {
+    fetchFiltersData();
+  }, [fetchFiltersData]);
+
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
+  
+  useEffect(() => {
+    if (filters.exam_id) {
+      fetchMisconceptions();
+      fetchTopicMastery();
+    } else {
+      setMisconceptions(null);
+      fetchTopicMastery();
+    }
+  }, [filters.exam_id, fetchMisconceptions, fetchTopicMastery]);
   
   const fetchStudentDeepDive = async (studentId, studentName) => {
     setSelectedStudent({ student_id: studentId, name: studentName });

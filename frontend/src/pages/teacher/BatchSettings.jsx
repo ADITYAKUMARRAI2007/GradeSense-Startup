@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Settings, Trash2, Archive, LockOpen, Save } from 'lucide-react';
@@ -20,11 +20,7 @@ const BatchSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchBatch();
-  }, [batchId]);
-
-  const fetchBatch = async () => {
+  const fetchBatch = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/batches/${batchId}`, { withCredentials: true });
       setBatch(response.data);
@@ -36,7 +32,11 @@ const BatchSettings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [batchId]);
+
+  useEffect(() => {
+    fetchBatch();
+  }, [fetchBatch]);
 
   const handleSave = async (e) => {
     e.preventDefault();

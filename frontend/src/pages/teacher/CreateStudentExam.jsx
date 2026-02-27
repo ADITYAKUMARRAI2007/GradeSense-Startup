@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { ArrowLeft, Upload, Users, FileText, CheckCircle, AlertCircle, Lightbulb, ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
@@ -36,11 +36,7 @@ const CreateStudentExam = () => {
   const [extracting, setExtracting] = useState(false);
   const [expandedQuestion, setExpandedQuestion] = useState(null);
 
-  useEffect(() => {
-    fetchBatchAndStudents();
-  }, [batchId]);
-
-  const fetchBatchAndStudents = async () => {
+  const fetchBatchAndStudents = useCallback(async () => {
     try {
       const batchRes = await axios.get(`${API}/batches/${batchId}`, { withCredentials: true });
       setBatch(batchRes.data);
@@ -56,7 +52,11 @@ const CreateStudentExam = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [batchId]);
+
+  useEffect(() => {
+    fetchBatchAndStudents();
+  }, [fetchBatchAndStudents]);
 
   const toggleStudent = (studentId) => {
     setSelectedStudents(prev => 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { API } from "../../App";
 import Layout from "../../components/Layout";
@@ -42,15 +42,7 @@ export default function ClassInsights({ user }) {
   const [selectedAction, setSelectedAction] = useState(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchFilters();
-  }, []);
-
-  useEffect(() => {
-    fetchInsights();
-  }, [selectedExam, selectedBatch]);
-
-  const fetchFilters = async () => {
+  const fetchFilters = useCallback(async () => {
     try {
       const [examsRes, batchesRes] = await Promise.all([
         axios.get(`${API}/exams`),
@@ -61,9 +53,9 @@ export default function ClassInsights({ user }) {
     } catch (error) {
       console.error("Error fetching filters:", error);
     }
-  };
+  }, []);
 
-  const fetchInsights = async () => {
+  const fetchInsights = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -76,7 +68,15 @@ export default function ClassInsights({ user }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedExam, selectedBatch]);
+
+  useEffect(() => {
+    fetchFilters();
+  }, [fetchFilters]);
+
+  useEffect(() => {
+    fetchInsights();
+  }, [fetchInsights]);
 
   const handleGenerateReviewPacket = async () => {
     if (!selectedExam) {
