@@ -29,12 +29,23 @@ export default function NotificationDropdown({ user }) {
   }, []);
 
   const fetchNotifications = async () => {
+    setLoading(true);
     try {
       const response = await axios.get(`${API}/notifications`);
-      setNotifications(response.data.notifications);
-      setUnreadCount(response.data.unread_count);
+      const data = response?.data || {};
+      const list = Array.isArray(data.notifications) ? data.notifications : [];
+      setNotifications(list);
+      setUnreadCount(
+        typeof data.unread_count === "number"
+          ? data.unread_count
+          : list.filter((item) => !item?.is_read).length
+      );
     } catch (error) {
       console.error("Error fetching notifications:", error);
+      setNotifications([]);
+      setUnreadCount(0);
+    } finally {
+      setLoading(false);
     }
   };
 
