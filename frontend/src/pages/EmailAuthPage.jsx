@@ -61,12 +61,6 @@ export default function EmailAuthPage() {
 
       toast.success(isLogin ? "Login successful!" : "Account created successfully!");
 
-      // Store token in localStorage so auth survives devtunnel/proxy chains
-      if (response.data.token) {
-        localStorage.setItem('session_token', response.data.token);
-      } else if (response.data.session_token) {
-        localStorage.setItem('session_token', response.data.session_token);
-      }
       // Lock exam type once the server accepts it
       if (response.data.exam_type === "upsc" || response.data.exam_type === "college") {
         localStorage.setItem("user_exam_type", response.data.exam_type);

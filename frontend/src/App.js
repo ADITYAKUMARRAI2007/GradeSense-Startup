@@ -48,16 +48,6 @@ if (!process.env.REACT_APP_BACKEND_URL) {
 // Configure axios
 axios.defaults.withCredentials = true;
 
-// Axios interceptor: attach Bearer token from localStorage as fallback for cookies
-// (cookies may not survive devtunnel / reverse-proxy chains)
-axios.interceptors.request.use((config) => {
-  const token = localStorage.getItem('session_token');
-  if (token && !config.headers.Authorization) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 // Auth context
 export const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -159,7 +149,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
 
   if (!isAuthenticated) {
-    return null;
+    return <Navigate to="/login" replace />;
   }
 
   return children({ user, setUser });

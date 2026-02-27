@@ -58,10 +58,6 @@ export default function AuthCallback() {
         const user = response.data;
         const serverExamType = user.exam_type;
 
-        // Store token in localStorage so auth survives devtunnel/proxy chains
-        if (user.session_token) {
-          localStorage.setItem('session_token', user.session_token);
-        }
         // Persist authoritative exam type once returned by server
         if (serverExamType === "upsc" || serverExamType === "college") {
           const priorChoice = localStorage.getItem("preferredExamType");
