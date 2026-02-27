@@ -56,10 +56,6 @@ export const useAuth = () => {
   const checkAuth = async () => {
     try {
       const response = await axios.get(`${API}/auth/me`);
-      if (!response?.data || typeof response.data !== "object" || !response.data.user_id) {
-        setUser(null);
-        return null;
-      }
       setUser(response.data);
       return response.data;
     } catch (error) {
@@ -108,9 +104,6 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     const checkAuth = async () => {
       try {
         const response = await axios.get(`${API}/auth/me`);
-        if (!response?.data || typeof response.data !== "object" || !response.data.user_id) {
-          throw new Error("Invalid auth response");
-        }
         setUser(response.data);
         setIsAuthenticated(true);
 
