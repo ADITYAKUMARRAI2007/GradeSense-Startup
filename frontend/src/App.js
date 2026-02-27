@@ -35,8 +35,10 @@ import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import AdminUsersAdvanced from "./pages/admin/AdminUsersAdvanced";
 import FeedbackBeacon from "./components/FeedbackBeacon";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || window.location.origin;
-export const API = `${BACKEND_URL}/api`;
+// Use a relative API root by default so clients (including devtunnel users)
+// always call the same origin (the frontend/dev server) which proxies to the backend.
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+export const API = BACKEND_URL ? `${BACKEND_URL}/api` : "/api";
 
 // Debug logging for environment (disabled in UI to keep console clean)
 if (!process.env.REACT_APP_BACKEND_URL) {
@@ -45,6 +47,16 @@ if (!process.env.REACT_APP_BACKEND_URL) {
 
 // Configure axios
 axios.defaults.withCredentials = true;
+
+// Axios interceptor: attach Bearer token from localStorage as fallback for cookies
+// (cookies may not survive devtunnel / reverse-proxy chains)
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('session_token');
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 // Auth context
 export const useAuth = () => {
@@ -70,6 +82,7 @@ export const useAuth = () => {
     } catch (error) {
       console.error("Logout error:", error);
     }
+    localStorage.removeItem('session_token');
     setUser(null);
     window.location.href = "/login";
   };

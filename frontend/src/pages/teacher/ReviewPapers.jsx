@@ -134,6 +134,7 @@ export default function ReviewPapers({ user }) {
   const [applyToAllPapers, setApplyToAllPapers] = useState(false);
   const [extractingQuestions, setExtractingQuestions] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
 
   const getDownloadImages = useCallback(() => {
     if (!selectedSubmission) return [];
@@ -145,6 +146,267 @@ export default function ReviewPapers({ user }) {
     }
     return baseImages;
   }, [selectedSubmission, showAnnotations]);
+
+  const getDisplayQuestionMaxMarks = useCallback((questionScore, examQuestion) => {
+    const scoreMax = Number(questionScore?.max_marks);
+    if (Number.isFinite(scoreMax) && scoreMax > 0) return scoreMax;
+
+    const examQuestionMax = Number(examQuestion?.max_marks);
+    if (Number.isFinite(examQuestionMax) && examQuestionMax > 0) return examQuestionMax;
+
+    const examSubSum = (examQuestion?.sub_questions || []).reduce((sum, sub) => {
+      const marks = Number(sub?.max_marks);
+      return sum + (Number.isFinite(marks) && marks > 0 ? marks : 0);
+    }, 0);
+    if (examSubSum > 0) return examSubSum;
+
+    const scoreSubSum = (questionScore?.sub_scores || []).reduce((sum, sub) => {
+      const marks = Number(sub?.max_marks);
+      return sum + (Number.isFinite(marks) && marks > 0 ? marks : 0);
+    }, 0);
+    if (scoreSubSum > 0) return scoreSubSum;
+
+    return 1;
+  }, []);
+
+  const getDisplaySubMaxMarks = useCallback((subScore, examSubQuestion) => {
+    const subMax = Number(subScore?.max_marks);
+    if (Number.isFinite(subMax) && subMax > 0) return subMax;
+
+    const examSubMax = Number(examSubQuestion?.max_marks);
+    if (Number.isFinite(examSubMax) && examSubMax > 0) return examSubMax;
+
+    return 1;
+  }, []);
+
+  const normalizeQuestionNumber = useCallback((value) => {
+    if (value === null || value === undefined) return "";
+    const text = String(value).trim();
+    if (!text) return "";
+    const stripped = text.replace(/^(?:q(?:uestion)?)\s*[:.\-]?\s*/i, "");
+    const match = stripped.match(/\d+/);
+    if (match) return match[0];
+    return stripped.toLowerCase().replace(/[^a-z0-9]/g, "");
+  }, []);
+
+  const getQuestionSortKey = useCallback((value) => {
+    const normalized = normalizeQuestionNumber(value);
+    const match = normalized.match(/\d+/);
+    return match ? parseInt(match[0], 10) : Number.MAX_SAFE_INTEGER;
+  }, [normalizeQuestionNumber]);
+
+  const sortQuestionsSequentially = useCallback((questions = []) => {
+    return [...questions].sort((a, b) => {
+      const keyA = getQuestionSortKey(a?.question_number);
+      const keyB = getQuestionSortKey(b?.question_number);
+      if (keyA !== keyB) return keyA - keyB;
+      return String(a?.question_number || "").localeCompare(String(b?.question_number || ""));
+    });
+  }, [getQuestionSortKey]);
+
+  const normalizeSubId = useCallback((value) => {
+    if (value === null || value === undefined) return "";
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/^[\(\)\s.\-]+|[\(\)\s.\-]+$/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }, []);
+
+  const getQuestionScoreMax = useCallback((questionScore) => {
+    const scoreMax = Number(questionScore?.max_marks);
+    if (Number.isFinite(scoreMax) && scoreMax > 0) return scoreMax;
+
+    const subSum = (questionScore?.sub_scores || []).reduce((sum, sub) => {
+      const marks = Number(sub?.max_marks);
+      return sum + (Number.isFinite(marks) && marks > 0 ? marks : 0);
+    }, 0);
+    return subSum > 0 ? subSum : 0;
+  }, []);
+
+  const getSubScoreMax = useCallback((subScore) => {
+    const subMax = Number(subScore?.max_marks);
+    return Number.isFinite(subMax) && subMax > 0 ? subMax : 0;
+  }, []);
+
+  const questionQualityScore = useCallback((questionScore) => {
+    let score = 0;
+    const status = String(questionScore?.status || "").toLowerCase();
+    if (status && status !== "not_found") score += 5;
+    if (getQuestionScoreMax(questionScore) > 0) score += 4;
+
+    const obtained = Number(questionScore?.obtained_marks);
+    if (Number.isFinite(obtained) && obtained > 0) score += 3;
+
+    const subCount = questionScore?.sub_scores?.length || 0;
+    score += Math.min(subCount, 3);
+
+    const feedbackLen = String(questionScore?.ai_feedback || "").trim().length;
+    if (feedbackLen > 20) score += 1;
+
+    return score;
+  }, [getQuestionScoreMax]);
+
+  const subScoreQualityScore = useCallback((subScore) => {
+    let score = 0;
+    if (getSubScoreMax(subScore) > 0) score += 4;
+
+    const obtained = Number(subScore?.obtained_marks);
+    if (Number.isFinite(obtained) && obtained > 0) score += 3;
+
+    const status = String(subScore?.status || "").toLowerCase();
+    if (status && status !== "not_found") score += 2;
+
+    const feedbackLen = String(subScore?.ai_feedback || "").trim().length;
+    if (feedbackLen > 20) score += 1;
+
+    return score;
+  }, [getSubScoreMax]);
+
+  const mergeSubScores = useCallback((subScoresA = [], subScoresB = []) => {
+    const merged = new Map();
+
+    [...subScoresA, ...subScoresB].forEach((subScore) => {
+      const key = normalizeSubId(subScore?.sub_id);
+      if (!key) return;
+
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { ...subScore });
+        return;
+      }
+
+      const existingQuality = subScoreQualityScore(existing);
+      const incomingQuality = subScoreQualityScore(subScore);
+      const preferred = incomingQuality > existingQuality ? subScore : existing;
+      const fallback = preferred === existing ? subScore : existing;
+
+      merged.set(key, {
+        ...fallback,
+        ...preferred,
+        sub_id: preferred.sub_id || fallback.sub_id,
+        annotations: [
+          ...(existing.annotations || []),
+          ...(subScore.annotations || []),
+        ],
+      });
+    });
+
+    return Array.from(merged.values());
+  }, [normalizeSubId, subScoreQualityScore]);
+
+  const mergeQuestionScore = useCallback((scoreA, scoreB) => {
+    const qualityA = questionQualityScore(scoreA);
+    const qualityB = questionQualityScore(scoreB);
+    const preferred = qualityB > qualityA ? scoreB : scoreA;
+    const fallback = preferred === scoreA ? scoreB : scoreA;
+
+    return {
+      ...fallback,
+      ...preferred,
+      annotations: [
+        ...(scoreA.annotations || []),
+        ...(scoreB.annotations || []),
+      ],
+      sub_scores: mergeSubScores(scoreA.sub_scores || [], scoreB.sub_scores || []),
+    };
+  }, [mergeSubScores, questionQualityScore]);
+
+  const buildCompleteQuestionScores = useCallback((questionScores = [], questionDefinitions = []) => {
+    const seenQuestions = new Map();
+    const unnumbered = [];
+
+    (questionScores || []).forEach((qs, idx) => {
+      const key = normalizeQuestionNumber(qs?.question_number);
+      if (!key) {
+        unnumbered.push({ ...qs, __fallback_order: idx });
+        return;
+      }
+      const existing = seenQuestions.get(key);
+      if (!existing) {
+        seenQuestions.set(key, { ...qs });
+        return;
+      }
+      seenQuestions.set(key, mergeQuestionScore(existing, qs));
+    });
+
+    const deduped = sortQuestionsSequentially(Array.from(seenQuestions.values()));
+    if (!questionDefinitions?.length) {
+      return [...deduped, ...unnumbered];
+    }
+
+    const scoreByKey = new Map(
+      deduped.map((score) => [normalizeQuestionNumber(score?.question_number), score])
+    );
+
+    const completed = questionDefinitions.map((question) => {
+      const key = normalizeQuestionNumber(question?.question_number);
+      if (!key) return null;
+
+      const existing = scoreByKey.get(key);
+      if (existing) {
+        return {
+          ...existing,
+          question_number: question.question_number,
+        };
+      }
+
+      const examSubQuestions = question?.sub_questions || [];
+      const subScores = examSubQuestions.map((sub) => ({
+        sub_id: sub?.sub_id,
+        obtained_marks: 0,
+        max_marks: Number(sub?.max_marks) > 0 ? Number(sub.max_marks) : 1,
+        status: "not_found",
+        ai_feedback: "Answer not found on sheet.",
+        annotations: [],
+        is_reviewed: false,
+      }));
+
+      const qMax = Number(question?.max_marks) > 0
+        ? Number(question.max_marks)
+        : subScores.reduce((sum, sub) => sum + (Number(sub.max_marks) || 0), 0) || 1;
+
+      return {
+        question_number: question.question_number,
+        question_text: question?.rubric || question?.question_text || "",
+        obtained_marks: 0,
+        max_marks: qMax,
+        status: "not_found",
+        ai_feedback: "Answer not found on sheet.",
+        annotations: [],
+        is_reviewed: false,
+        sub_scores: subScores,
+      };
+    }).filter(Boolean);
+
+    return sortQuestionsSequentially(completed);
+  }, [mergeQuestionScore, normalizeQuestionNumber, sortQuestionsSequentially]);
+
+  const examQuestionMap = useMemo(() => {
+    const map = new Map();
+    (examQuestions || []).forEach((question) => {
+      const key = normalizeQuestionNumber(question?.question_number);
+      if (key) map.set(key, question);
+    });
+    return map;
+  }, [examQuestions, normalizeQuestionNumber]);
+
+  const getExamQuestionByNumber = useCallback((questionNumber) => {
+    return examQuestionMap.get(normalizeQuestionNumber(questionNumber));
+  }, [examQuestionMap, normalizeQuestionNumber]);
+
+  const getEffectiveQuestionMax = useCallback((questionScore) => {
+    const examQuestion = getExamQuestionByNumber(questionScore?.question_number);
+    return getDisplayQuestionMaxMarks(questionScore, examQuestion);
+  }, [getDisplayQuestionMaxMarks, getExamQuestionByNumber]);
+
+  const getEffectiveSubMax = useCallback((questionNumber, subScore) => {
+    const examQuestion = getExamQuestionByNumber(questionNumber);
+    const examSubQuestion = examQuestion?.sub_questions?.find(
+      (sq) => normalizeSubId(sq?.sub_id) === normalizeSubId(subScore?.sub_id)
+    );
+    return getDisplaySubMaxMarks(subScore, examSubQuestion);
+  }, [getDisplaySubMaxMarks, getExamQuestionByNumber, normalizeSubId]);
 
   const handleDownloadPdf = useCallback(async () => {
     const images = getDownloadImages();
@@ -269,72 +531,68 @@ export default function ReviewPapers({ user }) {
     try {
       const response = await axios.get(`${API}/submissions/${submissionId}`);
       
-      // CRITICAL FIX: Deduplicate question_scores by question_number
-      // This prevents display bugs where questions appear multiple times
-      if (response.data.question_scores && Array.isArray(response.data.question_scores)) {
-        const uniqueScores = [];
-        const seenQuestions = new Map();
-
-        for (const qs of response.data.question_scores) {
-          const existing = seenQuestions.get(qs.question_number);
-          if (!existing) {
-            seenQuestions.set(qs.question_number, qs);
-            uniqueScores.push(qs);
-          } else {
-            // Merge annotations and sub-scores to preserve overlay data
-            const mergedAnnotations = [
-              ...(existing.annotations || []),
-              ...(qs.annotations || [])
-            ];
-            existing.annotations = mergedAnnotations;
-
-            if (qs.sub_scores?.length) {
-              const subMap = new Map((existing.sub_scores || []).map((s) => [s.sub_id, s]));
-              qs.sub_scores.forEach((sub) => {
-                const existingSub = subMap.get(sub.sub_id);
-                if (!existingSub) {
-                  subMap.set(sub.sub_id, sub);
-                } else {
-                  existingSub.annotations = [
-                    ...(existingSub.annotations || []),
-                    ...(sub.annotations || [])
-                  ];
-                }
-              });
-              existing.sub_scores = Array.from(subMap.values());
-            }
-          }
-        }
-
-        response.data.question_scores = uniqueScores;
-        
-        // Recalculate total if deduplication occurred
-        if (uniqueScores.length !== response.data.question_scores.length) {
-          const newTotal = uniqueScores.reduce((sum, qs) => sum + (qs.obtained_marks || 0), 0);
-          response.data.obtained_marks = newTotal;
-          response.data.percentage = response.data.total_marks 
-            ? Math.round((newTotal / response.data.total_marks) * 100) 
-            : 0;
-          console.warn(`Deduplicated ${response.data.question_scores.length - uniqueScores.length} duplicate questions`);
-        }
-      }
-      
-      setSelectedSubmission(response.data);
+      const rawScores = Array.isArray(response.data.question_scores) ? response.data.question_scores : [];
       
       // Fetch exam to get model answer, question paper and questions
+      let sortedExamQuestions = [];
+      let examTotalMarks = Number(response.data.total_marks) || 0;
+      let validationReport = null;
       if (response.data.exam_id) {
         const examResponse = await axios.get(`${API}/exams/${response.data.exam_id}`);
         setModelAnswerImages(examResponse.data.model_answer_images || []);
         setQuestionPaperImages(examResponse.data.question_paper_images || []);
-        setExamQuestions(examResponse.data.questions || []);
+        sortedExamQuestions = sortQuestionsSequentially(examResponse.data.questions || []);
+        setExamQuestions(sortedExamQuestions);
+        const parsedExamTotal = Number(examResponse.data.total_marks);
+        if (Number.isFinite(parsedExamTotal) && parsedExamTotal > 0) {
+          examTotalMarks = parsedExamTotal;
+        }
+        validationReport = examResponse.data.mark_validation_report || null;
       }
+
+      const derivedTotalFromQuestions = sortedExamQuestions.reduce((sum, q) => {
+        const qMax = Number(q.max_marks);
+        if (Number.isFinite(qMax) && qMax > 0) return sum + qMax;
+        const subTotal = (q.sub_questions || []).reduce((s, sq) => {
+          const sqMax = Number(sq.max_marks);
+          return s + (Number.isFinite(sqMax) && sqMax > 0 ? sqMax : 0);
+        }, 0);
+        return sum + subTotal;
+      }, 0);
+      const validatorTotal = Number(validationReport?.validator_total ?? validationReport?.extracted_total);
+
+      const normalizedScores = buildCompleteQuestionScores(rawScores, sortedExamQuestions);
+      const normalizedTotalScore = normalizedScores.reduce(
+        (sum, qs) => sum + (Number(qs.obtained_marks) || 0),
+        0
+      );
+      const fallbackTotalMarks = normalizedScores.reduce((sum, qs) => {
+        const maxMarks = Number(qs.max_marks);
+        return sum + (Number.isFinite(maxMarks) && maxMarks > 0 ? maxMarks : 0);
+      }, 0);
+      const resolvedTotalMarks = (Number.isFinite(examTotalMarks) && examTotalMarks > 0)
+        ? examTotalMarks
+        : (derivedTotalFromQuestions > 0
+          ? derivedTotalFromQuestions
+          : (Number.isFinite(validatorTotal) && validatorTotal > 0
+            ? validatorTotal
+            : (fallbackTotalMarks > 0 ? fallbackTotalMarks : 1)));
+
+      setSelectedSubmission({
+        ...response.data,
+        question_scores: normalizedScores,
+        obtained_marks: normalizedTotalScore,
+        total_score: normalizedTotalScore,
+        total_marks: resolvedTotalMarks,
+        percentage: Math.round((normalizedTotalScore / resolvedTotalMarks) * 100),
+      });
     } catch (error) {
       toast.error("Failed to load submission details");
       setDialogOpen(false);
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [buildCompleteQuestionScores, sortQuestionsSequentially]);
 
   // Check if all questions are reviewed
   const areAllQuestionsReviewed = () => {
@@ -357,8 +615,12 @@ export default function ReviewPapers({ user }) {
 
     // If exam questions are known, ensure every question exists in scores
     if (examQuestions && examQuestions.length > 0) {
-      const scoreNums = new Set(selectedSubmission.question_scores.map(qs => qs.question_number));
-      const allPresent = examQuestions.every(q => scoreNums.has(q.question_number));
+      const scoreNums = new Set(
+        selectedSubmission.question_scores
+          .map(qs => normalizeQuestionNumber(qs?.question_number))
+          .filter(Boolean)
+      );
+      const allPresent = examQuestions.every((q) => scoreNums.has(normalizeQuestionNumber(q?.question_number)));
       if (!allPresent) return false;
     }
 
@@ -367,7 +629,13 @@ export default function ReviewPapers({ user }) {
     if (anyNotFound) return false;
 
     return true;
-  }, [selectedSubmission, examQuestions]);
+  }, [selectedSubmission, examQuestions, normalizeQuestionNumber]);
+
+  const activeExamId = selectedSubmission?.exam_id || filters.exam_id;
+  const activeExam = useMemo(
+    () => exams.find(e => e.exam_id === activeExamId),
+    [exams, activeExamId]
+  );
 
   const handleSaveChanges = async () => {
     if (!selectedSubmission) return;
@@ -473,13 +741,13 @@ export default function ReviewPapers({ user }) {
       // Recalculate obtained_marks from sub_scores if they exist
       if (newScores[index].sub_scores?.length > 0) {
         newScores[index].obtained_marks = newScores[index].sub_scores.reduce(
-          (sum, ss) => sum + (ss.obtained_marks || 0), 0
+          (sum, ss) => sum + (Number(ss.obtained_marks) || 0), 0
         );
       }
       
-      const totalScore = newScores.reduce((sum, qs) => sum + qs.obtained_marks, 0);
+      const totalScore = newScores.reduce((sum, qs) => sum + (Number(qs.obtained_marks) || 0), 0);
       const exam = exams.find(e => e.exam_id === prev.exam_id);
-      const totalMarks = exam?.total_marks || newScores.reduce((sum, q) => sum + q.max_marks, 0) || 100;
+      const totalMarks = Number(exam?.total_marks) || newScores.reduce((sum, q) => sum + (Number(q.max_marks) || 0), 0) || 100;
       
       return {
         ...prev,
@@ -500,16 +768,16 @@ export default function ReviewPapers({ user }) {
       newSubScores[subIndex] = { ...newSubScores[subIndex], [field]: value };
       
       // Recalculate parent question's obtained_marks from sub_scores
-      const totalSubMarks = newSubScores.reduce((sum, ss) => sum + (ss.obtained_marks || 0), 0);
+      const totalSubMarks = newSubScores.reduce((sum, ss) => sum + (Number(ss.obtained_marks) || 0), 0);
       newScores[questionIndex] = { 
         ...newScores[questionIndex], 
         sub_scores: newSubScores,
         obtained_marks: totalSubMarks
       };
       
-      const totalScore = newScores.reduce((sum, qs) => sum + qs.obtained_marks, 0);
+      const totalScore = newScores.reduce((sum, qs) => sum + (Number(qs.obtained_marks) || 0), 0);
       const exam = exams.find(e => e.exam_id === prev.exam_id);
-      const totalMarks = exam?.total_marks || newScores.reduce((sum, q) => sum + q.max_marks, 0) || 100;
+      const totalMarks = Number(exam?.total_marks) || newScores.reduce((sum, q) => sum + (Number(q.max_marks) || 0), 0) || 100;
       
       return {
         ...prev,
@@ -735,15 +1003,6 @@ export default function ReviewPapers({ user }) {
     const selectedExam = exams.find(e => e.exam_id === examId);
     if (!selectedExam) {
       toast.error("Exam not found");
-      return;
-    }
-
-    // Check for documents - either in old storage (images array) or new storage (has_* flags)
-    const hasModelAnswer = selectedExam.model_answer_images?.length > 0 || selectedExam.has_model_answer;
-    const hasQuestionPaper = selectedExam.question_paper_images?.length > 0 || selectedExam.has_question_paper;
-    
-    if (!hasModelAnswer && !hasQuestionPaper) {
-      toast.error("No model answer or question paper found. Upload one first in Manage Exams.");
       return;
     }
 
@@ -997,7 +1256,8 @@ export default function ReviewPapers({ user }) {
           <div className="p-4 space-y-3">
             {selectedSubmission.question_scores?.map((qs, index) => {
               const hasSubQuestions = qs.sub_scores && qs.sub_scores.length > 0;
-              const examQuestion = examQuestions.find(q => q.question_number === qs.question_number);
+              const examQuestion = getExamQuestionByNumber(qs.question_number);
+              const displayQuestionMax = getDisplayQuestionMaxMarks(qs, examQuestion);
               
               return (
               <div 
@@ -1017,7 +1277,7 @@ export default function ReviewPapers({ user }) {
                         className="w-16 text-center text-sm"
                       />
                     )}
-                    <span className="text-muted-foreground text-sm">/ {qs.max_marks}</span>
+                    <span className="text-muted-foreground text-sm">/ {displayQuestionMax}</span>
                   </div>
                 </div>
 
@@ -1040,7 +1300,10 @@ export default function ReviewPapers({ user }) {
                 {hasSubQuestions ? (
                   <div className="space-y-3 mt-3">
                     {qs.sub_scores.map((subScore, subIndex) => {
-                      const examSubQuestion = examQuestion?.sub_questions?.find(sq => sq.sub_id === subScore.sub_id);
+                      const examSubQuestion = examQuestion?.sub_questions?.find(
+                        (sq) => normalizeSubId(sq?.sub_id) === normalizeSubId(subScore?.sub_id)
+                      );
+                      const displaySubMax = getDisplaySubMaxMarks(subScore, examSubQuestion);
                       let subQuestionText = examSubQuestion?.rubric || examSubQuestion?.question_text || "";
                       
                       // CRITICAL FIX: Handle nested sub-question objects
@@ -1069,7 +1332,7 @@ export default function ReviewPapers({ user }) {
                                 className="w-12 text-center text-xs"
                                 step="0.5"
                               />
-                              <span className="text-muted-foreground text-xs">/ {subScore.max_marks}</span>
+                              <span className="text-muted-foreground text-xs">/ {displaySubMax}</span>
                             </div>
                           </div>
                           
@@ -1440,7 +1703,8 @@ export default function ReviewPapers({ user }) {
 
                 {selectedSubmission.question_scores?.map((qs, index) => {
                   const hasSubQuestions = qs.sub_scores && qs.sub_scores.length > 0;
-                  const examQuestion = examQuestions.find(q => q.question_number === qs.question_number);
+                  const examQuestion = getExamQuestionByNumber(qs.question_number);
+                  const displayQuestionMax = getDisplayQuestionMaxMarks(qs, examQuestion);
                   
                   return (
                   <div 
@@ -1465,7 +1729,7 @@ export default function ReviewPapers({ user }) {
                             data-testid={`score-q${qs.question_number}`}
                           />
                         )}
-                        <span className="text-muted-foreground text-sm">/ {qs.max_marks}</span>
+                        <span className="text-muted-foreground text-sm">/ {displayQuestionMax}</span>
                       </div>
                     </div>
 
@@ -1516,7 +1780,10 @@ export default function ReviewPapers({ user }) {
                     {hasSubQuestions ? (
                       <div className="space-y-4 mt-3">
                         {qs.sub_scores.map((subScore, subIndex) => {
-                          const examSubQuestion = examQuestion?.sub_questions?.find(sq => sq.sub_id === subScore.sub_id);
+                          const examSubQuestion = examQuestion?.sub_questions?.find(
+                            (sq) => normalizeSubId(sq?.sub_id) === normalizeSubId(subScore?.sub_id)
+                          );
+                          const displaySubMax = getDisplaySubMaxMarks(subScore, examSubQuestion);
                           let subQuestionText = examSubQuestion?.rubric || examSubQuestion?.question_text || "";
                           
                           // CRITICAL FIX: Handle nested sub-question objects
@@ -1545,7 +1812,7 @@ export default function ReviewPapers({ user }) {
                                     className="w-14 text-center text-sm font-medium border-0 p-0 h-6"
                                     step="0.5"
                                   />
-                                  <span className="text-muted-foreground text-sm">/ {subScore.max_marks}</span>
+                                  <span className="text-muted-foreground text-sm">/ {displaySubMax}</span>
                                 </div>
                               </div>
                               
@@ -1917,19 +2184,22 @@ export default function ReviewPapers({ user }) {
                           <SelectItem value="all">
                             <span className="font-medium">Whole Question</span>
                             <span className="text-xs text-muted-foreground ml-2">
-                              ({feedbackQuestion.obtained_marks}/{feedbackQuestion.max_marks} marks)
+                              ({feedbackQuestion.obtained_marks}/{getEffectiveQuestionMax(feedbackQuestion)} marks)
                             </span>
                           </SelectItem>
                           {feedbackQuestion.sub_scores.map((subScore, idx) => {
                             const examQuestion = examQuestions.find(q => q.question_number === feedbackQuestion.question_number);
-                            const examSubQuestion = examQuestion?.sub_questions?.find(sq => sq.sub_id === subScore.sub_id);
+                            const examSubQuestion = examQuestion?.sub_questions?.find(
+                              (sq) => normalizeSubId(sq?.sub_id) === normalizeSubId(subScore?.sub_id)
+                            );
                             const subLabel = examSubQuestion?.sub_label || `Part ${idx + 1}`;
+                            const displaySubMax = getDisplaySubMaxMarks(subScore, examSubQuestion);
                             
                             return (
                               <SelectItem key={subScore.sub_id} value={subScore.sub_id}>
                                 <span className="font-medium">{subLabel}</span>
                                 <span className="text-xs text-muted-foreground ml-2">
-                                  ({subScore.obtained_marks}/{subScore.max_marks} marks)
+                                  ({subScore.obtained_marks}/{displaySubMax} marks)
                                 </span>
                               </SelectItem>
                             );
@@ -1945,14 +2215,14 @@ export default function ReviewPapers({ user }) {
                       <div className="p-2 bg-white rounded text-center font-medium border">
                         {(() => {
                           if (correction.selected_sub_question === "all") {
-                            return `${feedbackQuestion.obtained_marks} / ${feedbackQuestion.max_marks}`;
+                            return `${feedbackQuestion.obtained_marks} / ${getEffectiveQuestionMax(feedbackQuestion)}`;
                           } else {
                             const subScore = feedbackQuestion.sub_scores?.find(
                               s => s.sub_id === correction.selected_sub_question
                             );
                             return subScore 
-                              ? `${subScore.obtained_marks} / ${subScore.max_marks}`
-                              : `${feedbackQuestion.obtained_marks} / ${feedbackQuestion.max_marks}`;
+                              ? `${subScore.obtained_marks} / ${getEffectiveSubMax(feedbackQuestion.question_number, subScore)}`
+                              : `${feedbackQuestion.obtained_marks} / ${getEffectiveQuestionMax(feedbackQuestion)}`;
                           }
                         })()}
                       </div>
@@ -1964,12 +2234,14 @@ export default function ReviewPapers({ user }) {
                         min="0"
                         max={(() => {
                           if (correction.selected_sub_question === "all") {
-                            return feedbackQuestion.max_marks;
+                            return getEffectiveQuestionMax(feedbackQuestion);
                           } else {
                             const subScore = feedbackQuestion.sub_scores?.find(
                               s => s.sub_id === correction.selected_sub_question
                             );
-                            return subScore?.max_marks || feedbackQuestion.max_marks;
+                            return subScore
+                              ? getEffectiveSubMax(feedbackQuestion.question_number, subScore)
+                              : getEffectiveQuestionMax(feedbackQuestion);
                           }
                         })()}
                         step="0.5"
@@ -2077,9 +2349,82 @@ export default function ReviewPapers({ user }) {
     );
   };
 
+  const validationReport = activeExam?.mark_validation_report || null;
+  const validationStatus = (activeExam?.mark_validation_status || validationReport?.status || "").toLowerCase();
+
   return (
     <Layout user={user}>
       <div className="space-y-4" data-testid="review-papers-page">
+        {activeExam && validationReport && (
+          <div className="max-w-7xl mx-auto">
+            <Card className="border border-amber-200 bg-amber-50/40">
+              <CardHeader className="p-3 lg:p-4 pb-2 lg:pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base lg:text-lg">Mark Validation</CardTitle>
+                    <Badge variant={validationStatus === "pass" ? "default" : "secondary"}>
+                      {validationStatus === "pass" ? "Pass" : "Warning"}
+                    </Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowValidationDetails(v => !v)}
+                  >
+                    {showValidationDetails ? "Hide Details" : "View Details"}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 lg:p-4 pt-0">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Missing</p>
+                    <p className="font-semibold">{validationReport.missing_count ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Mismatches</p>
+                    <p className="font-semibold">{validationReport.mismatch_count ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Unknown</p>
+                    <p className="font-semibold">{validationReport.unknown_count ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Inferred</p>
+                    <p className="font-semibold">{validationReport.inferred_count ?? 0}</p>
+                  </div>
+                </div>
+
+                {showValidationDetails && (
+                  <div className="mt-3 space-y-2 text-sm">
+                    {(validationReport.issues || []).slice(0, 5).map((issue, idx) => (
+                      <div key={`${issue.question_number}-${issue.sub_part || "q"}-${idx}`} className="flex flex-wrap gap-2">
+                        <span className="font-semibold">Q{issue.question_number}{issue.sub_part ? `(${issue.sub_part})` : ""}:</span>
+                        <span>{issue.issue_type}</span>
+                        <span className="text-muted-foreground">
+                          (extracted: {issue.extracted ?? "—"}, validator: {issue.validator ?? "—"})
+                        </span>
+                      </div>
+                    ))}
+                    {validationReport.issues?.length > 5 && (
+                      <p className="text-muted-foreground">Showing top 5 issues. Check logs for full report.</p>
+                    )}
+                    {(validationReport.implicit_rules_detected || []).length > 0 && (
+                      <div className="text-muted-foreground">
+                        <p className="font-semibold text-foreground">Implicit Rules</p>
+                        <ul className="list-disc ml-5">
+                          {validationReport.implicit_rules_detected.slice(0, 5).map((rule, idx) => (
+                            <li key={`rule-${idx}`}>{rule}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
         {/* Submissions List - Full Width */}
         <div className="max-w-7xl mx-auto">
           {/* Submissions List */}

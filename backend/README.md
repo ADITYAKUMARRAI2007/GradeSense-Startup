@@ -94,11 +94,17 @@ python3 -m venv .venv
 # Activate it
 source .venv/bin/activate
 
+# Upgrade installer tooling
+python -m pip install --upgrade pip setuptools wheel
+
+# Force wheel install for PyMuPDF (prevents local MuPDF source build errors)
+python -m pip install --only-binary=PyMuPDF PyMuPDF==1.26.7
+
 # Install dependencies
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Start the server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Environment Variables
@@ -118,6 +124,23 @@ GOOGLE_VISION_API_KEY=your_vision_api_key
 # Google OAuth (required for login)
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
+
+# OCR tuning (optional)
+OCR_PRIMARY=vision
+OCR_FALLBACK=paddle
+OCR_MIN_CONF=0.5
+OCR_MIN_WORDS=20
+OCR_MIN_LINES=5
+OCR_FALLBACK_ONLY_IF_EMPTY=true
+OCR_ENABLE_TABLES=true
+PADDLE_USE_ANGLE_CLS=true
+PADDLE_LANG=en
+PADDLE_MAX_SIDE=1800
+# Optional local Paddle model paths (for restricted DNS/network environments)
+PADDLE_DET_MODEL_DIR=
+PADDLE_REC_MODEL_DIR=
+PADDLE_CLS_MODEL_DIR=
+PADDLE_TABLE_MODEL_DIR=
 
 # Environment
 ENV=development

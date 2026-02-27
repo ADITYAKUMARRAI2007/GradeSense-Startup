@@ -10,6 +10,7 @@ from typing import List, Dict, Optional
 import base64
 import io
 import re
+import os
 
 from PIL import Image
 
@@ -21,7 +22,9 @@ from app.utils.annotation_utils import (
     apply_annotations_to_image,
     auto_position_annotations_for_question
 )
+from app.utils.ocr_provider import get_ocr_provider
 from app.utils.vision_ocr_service import get_vision_service
+from app.services.segmentation import build_page_segments
 
 
 def _generate_margin_annotations(
@@ -87,6 +90,9 @@ def generate_annotated_images(
             page_questions[page_idx].append(q_score)
 
         annotated_images = []
+        # Number of front pages to skip annotations for (intro + following pages)
+        SKIP_INTRO_PAGES = int(os.environ.get("SKIP_ANNOTATION_INTRO_PAGES", "3"))
+
         for page_idx, original_image in enumerate(original_images):
             try:
                 image_data = base64.b64decode(original_image)
@@ -95,6 +101,12 @@ def generate_annotated_images(
             except Exception as e:
                 logger.warning(f"Could not get image dimensions: {e}, using defaults")
                 img_width, img_height = 1000, 1400
+
+            # If configured to skip the first N pages, leave them unchanged
+            if page_idx < SKIP_INTRO_PAGES:
+                logger.info(f"[ANN-SKIP] Skipping annotations for front page #{page_idx+1} (SKIP_INTRO_PAGES={SKIP_INTRO_PAGES})")
+                annotated_images.append(original_image)
+                continue
 
             positioned_annotations: List[Annotation] = []
             auto_annotation_y = 140
@@ -187,9 +199,9 @@ async def generate_annotated_images_with_vision_ocr(
         return generate_annotated_images(original_images, question_scores)
 
     vision_service = get_vision_service()
+    ocr_provider = get_ocr_provider()
     if not vision_service.is_available() and not dense_red_pen:
-        logger.warning("Vision OCR not available - using margin annotations")
-        return generate_annotated_images(original_images, question_scores)
+        logger.warning("Vision OCR unavailable; continuing with hybrid OCR provider fallback")
 
     # Helper functions for OCR-based annotation positioning
     def _normalize_text(text: str) -> List[str]:
@@ -259,7 +271,7 @@ async def generate_annotated_images_with_vision_ocr(
         ocr_words.sort(key=lambda i: (i["yc"], i["x"]))
         return ocr_words
 
-    def _group_words_into_lines(words, y_threshold: float):
+    def _group_words_into_lines(words, y_threshold: float, img_width: int):
         """Group words into lines based on vertical proximity.
         Handles both formats: {x1,y1,x2,y2} from VisionOCRService 
         and {vertices: [{x,y},...]} from raw Vision API objects."""
@@ -299,11 +311,21 @@ async def generate_annotated_images_with_vision_ocr(
             else:
                 lines.append([item])
         line_boxes = []
+        left_strip_x = float(img_width) * 0.24
         for line in lines:
             xs = [i["x1"] for i in line] + [i["x2"] for i in line]
             ys = [i["y1"] for i in line] + [i["y2"] for i in line]
             text = " ".join(i["text"] for i in line)
-            line_boxes.append({"text": text, "x1": min(xs), "y1": min(ys), "x2": max(xs), "y2": max(ys)})
+            left_items = [i for i in line if float(i["x1"]) <= left_strip_x]
+            left_text = " ".join(i["text"] for i in left_items).strip()
+            line_boxes.append({
+                "text": text,
+                "left_text": left_text,
+                "x1": min(xs),
+                "y1": min(ys),
+                "x2": max(xs),
+                "y2": max(ys),
+            })
         return line_boxes
 
     def _build_word_boxes(words):
@@ -326,6 +348,38 @@ async def generate_annotated_images_with_vision_ocr(
         q_num: re.compile(rf"^\s*(?:Q\s*)?{q_num}\s*[\).:-]?\s*", re.IGNORECASE)
         for q_num in question_numbers
     }
+    q_num_set = set(question_numbers)
+
+    def _extract_question_number_from_left_label(left_text: str, page_num: int) -> Optional[int]:
+        if not left_text:
+            return None
+        t = re.sub(r"\s+", " ", left_text).strip()
+        if not t:
+            return None
+        t_lower = t.lower()
+        if t.isdigit() and len(t) <= 2 and int(t) == page_num:
+            return None
+        if "space for writing" in t_lower or "question number" in t_lower:
+            return None
+
+        explicit = re.match(r"^\s*(?:q(?:uestion)?\.?\s*)0*(\d{1,2})\b", t, re.IGNORECASE)
+        if explicit:
+            n = int(explicit.group(1))
+            return n if n in q_num_set else None
+
+        lead = re.match(r"^\s*[\(\[]?\s*0*([0-9]{1,3})\s*[\)\]\.:-]?\b", t)
+        if lead:
+            raw = lead.group(1)
+            n: Optional[int] = None
+            if len(raw) <= 2:
+                n = int(raw)
+            elif len(raw) == 3 and raw.startswith("0"):
+                n = int(raw[-2:])
+            elif len(raw) == 3 and raw.startswith("9"):
+                n = int(raw[-2:])
+            if n is not None and n in q_num_set:
+                return n
+        return None
 
     # Compute total score once for the first-page header
     _total_obtained = sum(
@@ -342,6 +396,7 @@ async def generate_annotated_images_with_vision_ocr(
     pages_ocr = [None] * len(original_images)
     question_last_line: Dict[int, tuple] = {}  # q_num -> (page_idx, line_idx, line_box)
 
+    carry_q_global = 0
     for p_idx, original_image_b64 in enumerate(original_images):
         try:
             image_data = base64.b64decode(original_image_b64)
@@ -351,28 +406,38 @@ async def generate_annotated_images_with_vision_ocr(
             p_w, p_h = 1000, 1400
 
         try:
-            ocr_result = vision_service.detect_text_from_base64(original_image_b64, ["en"])
-            words = ocr_result.get("words", [])
+            ocr_result = ocr_provider.detect(original_image_b64, allow_fallback=False)
+            words = ocr_result.get("words", []) or []
+            tables = ocr_result.get("tables", []) or []
         except Exception:
             words = []
+            tables = []
 
         y_threshold = max(10, int(p_h * 0.012))
-        line_boxes = _group_words_into_lines(words, y_threshold)
+        line_boxes = _group_words_into_lines(words, y_threshold, p_w)
+        page_segments = build_page_segments(words=words, tables=tables, page=p_idx + 1)
+        segment_id_map_local = {seg.get("segment_id"): seg for seg in page_segments if seg.get("segment_id")}
 
         # Build a per-page line-index map (Qn -> {L#: box}) so we can identify last lines
         line_index_map = {}
         line_counts_local: Dict[int, int] = {}
-        current_q_local = question_numbers[0] if question_numbers else 0
+        page_num = p_idx + 1
+        detected_by_line = [
+            _extract_question_number_from_left_label((line.get("left_text") or ""), page_num)
+            for line in line_boxes
+        ]
+        has_anchor = any(v is not None for v in detected_by_line)
+        current_q_local = 0 if has_anchor else carry_q_global
         line_id_map_local: Dict[str, dict] = {}
         answer_start_y_local = int(p_h * 0.25)
         footer_margin = max(48, int(p_h * 0.03))
-        for line in line_boxes:
+        for line, detected_q in zip(line_boxes, detected_by_line):
             text = (line.get("text") or "").strip()
-            if text:
-                for q_num, pattern in question_patterns.items():
-                    if pattern.match(text):
-                        current_q_local = q_num
-                        break
+            if detected_q is not None:
+                current_q_local = detected_q
+                carry_q_global = detected_q
+            if current_q_local <= 0:
+                continue
             line_counts_local[current_q_local] = line_counts_local.get(current_q_local, 0) + 1
             li = line_counts_local[current_q_local]
             line_id = f"Q{current_q_local}-L{li}"
@@ -394,10 +459,7 @@ async def generate_annotated_images_with_vision_ocr(
             or (len(words) < 10)
         )
         # If a question header (Qn) appears on the page, treat it as an answer page
-        has_question_header = any(
-            any(pat.match((line.get("text") or "").strip()) for pat in question_patterns.values())
-            for line in line_boxes
-        )
+        has_question_header = has_anchor
         is_intro = basic_intro and not has_question_header
 
         pages_ocr[p_idx] = {
@@ -405,6 +467,7 @@ async def generate_annotated_images_with_vision_ocr(
             "line_boxes": line_boxes,
             "line_index_map": line_index_map,
             "line_id_map": line_id_map_local,
+            "segment_id_map": segment_id_map_local,
             "img_w": p_w,
             "img_h": p_h,
             "is_intro": is_intro,
@@ -442,6 +505,8 @@ async def generate_annotated_images_with_vision_ocr(
             logger.debug(f"[PAGE-INFER] Could not infer page for Q{qn}")
 
     # --- MAIN PER-PAGE RENDER PASS (uses stored OCR from pre-scan) ---
+    SKIP_INTRO_PAGES = int(os.environ.get("SKIP_ANNOTATION_INTRO_PAGES", "3"))
+    intro_zone_end = -1
     for page_idx, original_image in enumerate(original_images):
 
         # Use pre-scanned OCR data for this page
@@ -458,27 +523,26 @@ async def generate_annotated_images_with_vision_ocr(
         answer_start_y = int(img_height * 0.25)
         is_intro_page = page_data.get("is_intro", False)
 
-        positioned_annotations: List[Annotation] = []
-
-        # On the first page, ONLY draw total score, NO OTHER ANNOTATIONS
-        if page_idx == 0:
-            positioned_annotations.append(Annotation(
-                annotation_type=AnnotationType.TOTAL_SCORE,
-                x=0, y=0, text=_total_score_text, color="red", size=28
-            ))
-            # Skip all answer annotations on first page
-            annotated_image = apply_annotations_to_image(original_image, positioned_annotations)
-            annotated_images.append(annotated_image)
-            continue
-
-        # SKIP INTRO/RUBRIC/HEADER PAGES COMPLETELY - NO ANNOTATIONS AT ALL
-        if is_intro_page:
-            logger.info(f"[ANN-SKIP] Page {page_idx+1}: Detected as intro/rubric/header page - skipping all annotations")
+        # If this page falls within the intro-skip zone, do not render any annotations
+        if page_idx <= intro_zone_end:
+            logger.info(f"[ANN-SKIP] Page {page_idx+1}: within intro-skip zone (up to page {intro_zone_end+1}) - skipping annotations")
             annotated_images.append(original_image)
             continue
 
+        positioned_annotations: List[Annotation] = []
+
+        # If the OCR pre-scan explicitly marks this page as intro/header, skip it and
+        # also skip the following (SKIP_INTRO_PAGES - 1) pages.
+        if is_intro_page:
+            intro_zone_end = page_idx + max(0, SKIP_INTRO_PAGES - 1)
+            logger.info(f"[ANN-SKIP] Page {page_idx+1}: detected as intro/header - will skip through page {intro_zone_end+1}")
+            annotated_images.append(original_image)
+            continue
+
+
         # Reuse precomputed line ID maps from pre-scan
         line_id_map = page_data.get("line_id_map", {})
+        segment_id_map = page_data.get("segment_id_map", {})
         line_index_map = page_data.get("line_index_map", {})
         current_q = question_numbers[0] if question_numbers else 0
         logger.debug(f"[ANN-LINE-MAP] Page {page_idx+1}: Reusing {len(line_id_map)} line IDs")
@@ -503,6 +567,26 @@ async def generate_annotated_images_with_vision_ocr(
             end_idx = max(start[1], end[1])
             return [f"Q{q_num}-L{i}" for i in range(start_idx, end_idx + 1)]
 
+        def _parse_segment_id(value: Optional[str]):
+            if not value:
+                return None
+            match = re.match(r"^P(\d+)-S(\d+)$", str(value).strip(), re.IGNORECASE)
+            if not match:
+                return None
+            return int(match.group(1)), int(match.group(2))
+
+        def _expand_segment_range(start_id: Optional[str], end_id: Optional[str]) -> List[str]:
+            start = _parse_segment_id(start_id)
+            end = _parse_segment_id(end_id) if end_id else start
+            if not start:
+                return []
+            if not end or start[0] != end[0]:
+                return [f"P{start[0]}-S{start[1]}"]
+            p_num = start[0]
+            start_idx = min(start[1], end[1])
+            end_idx = max(start[1], end[1])
+            return [f"P{p_num}-S{i}" for i in range(start_idx, end_idx + 1)]
+
         # Position line-id or anchor-based annotations
         total_ann_requested = 0
         line_id_placed = 0
@@ -515,6 +599,110 @@ async def generate_annotated_images_with_vision_ocr(
                     continue
                 
                 total_ann_requested += 1
+                segment_ids = []
+                if getattr(ann_data, "segment_id", None):
+                    segment_ids = [ann_data.segment_id]
+                elif getattr(ann_data, "segment_id_start", None) or getattr(ann_data, "segment_id_end", None):
+                    segment_ids = _expand_segment_range(ann_data.segment_id_start, ann_data.segment_id_end)
+
+                if segment_ids:
+                    resolved_lines = []
+                    for seg_id in segment_ids:
+                        seg = segment_id_map.get(seg_id)
+                        if not seg:
+                            continue
+                        x1 = seg.get("x1", 0)
+                        y1 = seg.get("y1", 0)
+                        x2 = seg.get("x2", 0)
+                        y2 = seg.get("y2", 0)
+                        if y2 < answer_start_y:
+                            continue
+                        resolved_lines.append((x1, y1, x2, y2))
+
+                    if not resolved_lines:
+                        line_id_skipped += 1
+                        continue
+
+                    ann_type = str(ann_data.type or "").upper()
+                    reason_text = (ann_data.text or ann_data.label or ann_data.feedback or "").strip()
+                    span_x1 = min(r[0] for r in resolved_lines)
+                    span_y1 = min(r[1] for r in resolved_lines)
+                    span_x2 = max(r[2] for r in resolved_lines)
+                    span_y2 = max(r[3] for r in resolved_lines)
+                    span_cy = (span_y1 + span_y2) // 2
+                    is_multi_line = len(resolved_lines) > 1
+
+                    if ann_type in {"UNDERLINE", "ERROR_UNDERLINE", "FEEDBACK_UNDERLINE", "EMPHASIS_UNDERLINE"}:
+                        for (lx1, ly1, lx2, ly2) in resolved_lines:
+                            width = max(40, lx2 - lx1)
+                            positioned_annotations.append(Annotation(
+                                annotation_type=AnnotationType.ERROR_UNDERLINE,
+                                x=lx1, y=ly2 + 3, text="", color=ann_data.color or "#c00020", size=width
+                            ))
+                        if reason_text:
+                            if is_multi_line:
+                                positioned_annotations.append(Annotation(
+                                    annotation_type=AnnotationType.MARGIN_BRACKET,
+                                    x=span_x2 + 10, y=span_y1,
+                                    text=reason_text, color=ann_data.color or "#c00020",
+                                    size=24, height=span_y2 - span_y1
+                                ))
+                            else:
+                                positioned_annotations.append(Annotation(
+                                    annotation_type=AnnotationType.COMMENT,
+                                    x=span_x2 + 10, y=span_y1,
+                                    text=reason_text, color=ann_data.color or "#c00020", size=24
+                                ))
+                        line_id_placed += 1
+                    elif ann_type in {"BOX", "HIGHLIGHT_BOX"}:
+                        pad = 4
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.HIGHLIGHT_BOX,
+                            x=span_x1 - pad, y=span_y1 - pad, text="",
+                            color=ann_data.color or "red",
+                            width=max(30, span_x2 - span_x1 + pad * 2),
+                            height=max(16, span_y2 - span_y1 + pad * 2)
+                        ))
+                        if reason_text:
+                            positioned_annotations.append(Annotation(
+                                annotation_type=AnnotationType.MARGIN_NOTE,
+                                x=span_x2 + 10, y=span_cy - 8,
+                                text=reason_text, color=ann_data.color or "red", size=24
+                            ))
+                        line_id_placed += 1
+                    elif ann_type in {"TICK", "CHECKMARK", "DOUBLE_TICK"}:
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.CHECKMARK,
+                            x=30, y=span_cy - 10, text="", color="green", size=28
+                        ))
+                        if reason_text:
+                            positioned_annotations.append(Annotation(
+                                annotation_type=AnnotationType.COMMENT,
+                                x=span_x2 + 10, y=span_y1,
+                                text=reason_text, color="green", size=24
+                            ))
+                        line_id_placed += 1
+                    elif ann_type in {"CROSS", "CROSS_MARK"}:
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.CROSS_MARK,
+                            x=30, y=span_cy - 8, text="", color="red", size=26
+                        ))
+                        if reason_text:
+                            positioned_annotations.append(Annotation(
+                                annotation_type=AnnotationType.COMMENT,
+                                x=span_x2 + 10, y=span_y1,
+                                text=reason_text, color="red", size=24
+                            ))
+                        line_id_placed += 1
+                    else:
+                        positioned_annotations.append(Annotation(
+                            annotation_type=AnnotationType.COMMENT,
+                            x=span_x2 + 10, y=span_cy - 8,
+                            text=reason_text, color=ann_data.color or "red", size=26
+                        ))
+                        line_id_placed += 1
+                    continue
+
                 line_ids = []
                 if ann_data.line_id:
                     line_ids = [ann_data.line_id]

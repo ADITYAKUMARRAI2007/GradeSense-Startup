@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
 
     # Startup: Check system dependencies
     logger.info("🚀 FastAPI app starting up...")
+    logger.info("PIPELINE_CUTOVER_ACTIVE")
     logger.info("REGISTERED ROUTES: %s", [r.path for r in app.routes])
     logger.info("🔍 Checking system dependencies...")
 
@@ -145,8 +146,12 @@ async def metrics_tracking_middleware(request: Request, call_next):
 cors_origins_env = os.environ.get("CORS_ORIGINS")
 cors_origins = [origin.strip() for origin in cors_origins_env.split(",")] if cors_origins_env else [
     "http://localhost:3000",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
+    "https://wssbbmfb-3000.inc1.devtunnels.ms",
 ]
+
+# Also accept any devtunnels.ms origin dynamically
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "")
 
 app.add_middleware(
     CORSMiddleware,

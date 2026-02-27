@@ -1,16 +1,13 @@
 """
 Drop-in replacement for gemini_wrapper (LlmChat, UserMessage, ImageContent).
-Uses the official google-generativeai SDK directly.
+Uses the official google-genai SDK directly.
 """
 
 import asyncio
 import base64
-import inspect
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-import google.generativeai as genai
-
-from app.config import logger
+from google import genai
 
 
 class ImageContent:
@@ -19,18 +16,30 @@ class ImageContent:
     def __init__(self, image_base64: str):
         self.image_base64 = image_base64
 
-    def to_genai_part(self) -> dict:
-        """Convert to google-generativeai inline_data format."""
-        # Strip data URI prefix if present
+    def _decode_image(self) -> Tuple[bytes, str]:
+        """Decode base64 image and return (bytes, mime_type)."""
         b64 = self.image_base64
+        mime_type = "image/png"
+
         if b64.startswith("data:"):
-            b64 = b64.split(",", 1)[1]
-        return {
-            "inline_data": {
-                "mime_type": "image/png",
-                "data": b64,
-            }
-        }
+            header, b64 = b64.split(",", 1)
+            if ";" in header:
+                mime_type = header[5:].split(";")[0] or mime_type
+
+        raw = base64.b64decode(b64)
+        if mime_type == "image/png":
+            # Heuristic fallback when mime type is not provided.
+            if raw.startswith(b"\xff\xd8\xff"):
+                mime_type = "image/jpeg"
+            elif raw.startswith(b"RIFF") and b"WEBP" in raw[:16]:
+                mime_type = "image/webp"
+
+        return raw, mime_type
+
+    def to_genai_part(self):
+        """Convert to google-genai Part."""
+        raw, mime_type = self._decode_image()
+        return genai.types.Part.from_bytes(data=raw, mime_type=mime_type)
 
 
 class UserMessage:
@@ -41,12 +50,12 @@ class UserMessage:
         self.file_contents = file_contents or []
 
     def to_genai_parts(self) -> list:
-        """Convert to a list of parts for the google-generativeai SDK."""
+        """Convert to a list of parts for the google-genai SDK."""
         parts = []
         for img in self.file_contents:
             parts.append(img.to_genai_part())
         if self.text:
-            parts.append(self.text)
+            parts.append(genai.types.Part.from_text(text=self.text))
         return parts
 
 
@@ -68,6 +77,8 @@ class LlmChat:
         self._system_message = system_message
         self._model_name = "gemini-2.5-flash"
         self._temperature = None
+        self._extra_params = {}
+        self._client = None
         self._chat = None  # lazily created
 
     def with_model(self, provider: str, model_name: str) -> "LlmChat":
@@ -79,27 +90,57 @@ class LlmChat:
         """Set generation parameters."""
         if temperature is not None:
             self._temperature = temperature
+        if kwargs:
+            for key, value in kwargs.items():
+                if value is not None:
+                    self._extra_params[key] = value
         return self
 
     def _ensure_chat(self):
-        """Lazily create the underlying genai chat session."""
+        """Lazily create the underlying google-genai chat session."""
         if self._chat is None:
+            if not self._api_key:
+                raise ValueError("Missing Gemini API key")
+
             gen_config = {}
             if self._temperature is not None:
                 gen_config["temperature"] = self._temperature
+            # Allow a bounded set of generation params used by callers.
+            allowed_keys = {
+                "top_p",
+                "top_k",
+                "candidate_count",
+                "max_output_tokens",
+                "stop_sequences",
+                "response_mime_type",
+                "response_schema",
+                "seed",
+                "presence_penalty",
+                "frequency_penalty",
+            }
+            for key, value in self._extra_params.items():
+                if key in allowed_keys and value is not None:
+                    gen_config[key] = value
+            if self._system_message:
+                gen_config["system_instruction"] = self._system_message
 
-            model = genai.GenerativeModel(
-                model_name=self._model_name,
-                system_instruction=self._system_message if self._system_message else None,
-                generation_config=gen_config if gen_config else None,
+            config = (
+                genai.types.GenerateContentConfig(**gen_config)
+                if gen_config
+                else None
             )
-            self._chat = model.start_chat(history=[])
+            self._client = genai.Client(api_key=self._api_key)
+            self._chat = self._client.chats.create(
+                model=self._model_name,
+                config=config,
+                history=[],
+            )
 
     async def send_message(self, message: UserMessage) -> str:
         """
         Send a message and return the response text as a plain string.
 
-        This is async — uses run_in_executor for the synchronous genai SDK call.
+        This is async and uses run_in_executor for the synchronous SDK call.
         """
         self._ensure_chat()
         parts = message.to_genai_parts()
@@ -109,4 +150,4 @@ class LlmChat:
             None, lambda: self._chat.send_message(parts)
         )
 
-        return response.text
+        return response.text or ""

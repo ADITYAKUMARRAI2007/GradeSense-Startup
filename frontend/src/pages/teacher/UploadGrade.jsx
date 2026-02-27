@@ -75,6 +75,22 @@ const LABELING_FORMATS = {
   numbers: { name: "1, 2, 3...", generator: (i) => `${i + 1}` },
 };
 
+const EMPTY_QUESTION_TEMPLATE = { question_number: 1, max_marks: 10, rubric: "", sub_questions: [] };
+
+const extractErrorMessage = (error, fallback = "Request failed") => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && typeof detail === "object") {
+    const message = detail.message || detail.error;
+    const missing = Array.isArray(detail.missing_question_numbers) ? detail.missing_question_numbers : [];
+    if (message && missing.length) {
+      return `${message} Missing: Q${missing.join(", Q")}`;
+    }
+    if (message) return message;
+  }
+  return error?.message || fallback;
+};
+
 export default function UploadGrade({ user }) {
   const [step, setStep] = useState(1);
   const [batches, setBatches] = useState([]);
@@ -109,7 +125,7 @@ export default function UploadGrade({ user }) {
     total_marks: 100,
     exam_date: new Date().toISOString().split("T")[0],
     grading_mode: "balanced",
-    questions: [{ question_number: 1, max_marks: 10, rubric: "", sub_questions: [] }]
+    questions: []
   });
 
   const [modelAnswerFile, setModelAnswerFile] = useState(null);
@@ -758,7 +774,7 @@ export default function UploadGrade({ user }) {
       handleInputChange("subject_id", response.data.subject_id);
       toast.success("Subject created");
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to create subject");
+      toast.error(extractErrorMessage(error, "Failed to create subject"));
     }
   };
 
@@ -769,7 +785,7 @@ export default function UploadGrade({ user }) {
       handleInputChange("batch_id", response.data.batch_id);
       toast.success("Batch created");
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to create batch");
+      toast.error(extractErrorMessage(error, "Failed to create batch"));
     }
   };
 
@@ -781,17 +797,24 @@ export default function UploadGrade({ user }) {
 
     setLoading(true);
     try {
-      // Update exam with configured questions and grading mode
-      await axios.put(`${API}/exams/${examId}`, {
-        questions: formData.questions,
-        grading_mode: formData.grading_mode
-      });
+      const payload = { grading_mode: formData.grading_mode };
+      // Only push question edits when user explicitly chose manual entry.
+      if (showManualEntry) {
+        if (!formData.questions.length) {
+          toast.error("Add at least one question in manual mode, or choose Auto-Extract.");
+          setLoading(false);
+          return;
+        }
+        payload.questions = formData.questions;
+      }
+
+      await axios.put(`${API}/exams/${examId}`, payload);
       
       toast.success("Questions saved successfully");
       setStep(5);
     } catch (error) {
       console.error("Error saving questions:", error);
-      toast.error(error.response?.data?.detail || "Failed to save questions");
+      toast.error(extractErrorMessage(error, "Failed to save questions"));
     } finally {
       setLoading(false);
     }
@@ -822,7 +845,7 @@ export default function UploadGrade({ user }) {
       toast.success("Exam configuration saved");
       setStep(2);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to create exam");
+      toast.error(extractErrorMessage(error, "Failed to create exam"));
     } finally {
       setLoading(false);
     }
@@ -878,7 +901,7 @@ export default function UploadGrade({ user }) {
       setStep(3);
     } catch (error) {
       console.error("Error:", error);
-      toast.error(error.response?.data?.detail || "Failed to upload files");
+      toast.error(extractErrorMessage(error, "Failed to upload files"));
     } finally {
       setLoading(false);
     }
@@ -916,7 +939,7 @@ export default function UploadGrade({ user }) {
       
     } catch (error) {
       console.error("Error cancelling grading:", error);
-      toast.error(error.response?.data?.detail || "Failed to cancel grading");
+      toast.error(extractErrorMessage(error, "Failed to cancel grading"));
     }
   };
 
@@ -966,7 +989,7 @@ export default function UploadGrade({ user }) {
       startPollingJob(job_id);
       
     } catch (error) {
-      toast.error("Failed to start grading: " + (error.response?.data?.detail || error.message));
+      toast.error(`Failed to start grading: ${extractErrorMessage(error, "Unknown error")}`);
       setProcessing(false);
     }
   };
@@ -1006,7 +1029,7 @@ export default function UploadGrade({ user }) {
         total_marks: 100,
         exam_date: new Date().toISOString().split("T")[0],
         grading_mode: "balanced",
-        questions: [{ question_number: 1, max_marks: 10, rubric: "", sub_questions: [] }]
+        questions: []
       });
       setModelAnswerFile(null);
       setQuestionPaperFile(null);
@@ -1049,10 +1072,10 @@ export default function UploadGrade({ user }) {
   const confirmChangeMethod = () => {
     setShowManualEntry(false);
     setQuestionsSkipped(false);
-    // Reset questions to default single question
+    // Reset manual question draft when switching modes.
     setFormData(prev => ({
       ...prev,
-      questions: [{ question_number: 1, max_marks: 10, rubric: "", sub_questions: [] }]
+      questions: []
     }));
     setChangeMethodDialogOpen(false);
     toast.info("Question configuration method changed. You can select a new option.");
@@ -1443,7 +1466,16 @@ export default function UploadGrade({ user }) {
                   <div className="text-center py-8">
                     <h3 className="text-lg font-semibold mb-4">How would you like to add questions?</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl mx-auto">
-                      <Card className="p-6 cursor-pointer hover:border-primary transition-colors" onClick={() => setShowManualEntry(true)}>
+                      <Card
+                        className="p-6 cursor-pointer hover:border-primary transition-colors"
+                        onClick={() => {
+                          setShowManualEntry(true);
+                          setFormData(prev => ({
+                            ...prev,
+                            questions: (prev.questions && prev.questions.length > 0) ? prev.questions : [{ ...EMPTY_QUESTION_TEMPLATE }]
+                          }));
+                        }}
+                      >
                         <div className="text-center space-y-3">
                           <div className="h-12 w-12 mx-auto bg-blue-100 rounded-full flex items-center justify-center">
                             <Plus className="h-6 w-6 text-blue-600" />
@@ -1945,7 +1977,7 @@ export default function UploadGrade({ user }) {
                       total_marks: 100,
                       exam_date: new Date().toISOString().split("T")[0],
                       grading_mode: "balanced",
-                      questions: [{ question_number: 1, max_marks: 10, rubric: "", sub_questions: [] }]
+                      questions: []
                     });
                     setModelAnswerFile(null);
                     setStudentFiles([]);

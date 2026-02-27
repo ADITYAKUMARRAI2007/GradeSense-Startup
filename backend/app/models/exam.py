@@ -1,7 +1,7 @@
 """Exam-related Pydantic models"""
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime, timezone
 
 
@@ -15,6 +15,7 @@ class SubQuestion(BaseModel):
 class ExamQuestion(BaseModel):
     """Model for exam questions with optional sub-questions"""
     question_number: int
+    question_uuid: Optional[str] = None
     max_marks: float
     rubric: Optional[str] = None
     sub_questions: List[SubQuestion] = []  # For questions like 1a, 1b, 1c
@@ -31,6 +32,53 @@ class Exam(BaseModel):
     exam_date: str
     grading_mode: str
     questions: List[ExamQuestion] = []
+    processing_state: str = "idle"
+    processing_lock_at: Optional[str] = None
+    processing_lock_owner: Optional[str] = None
+    blueprint_status: str = "pending"  # pending, extracting, ready_unlocked, ready_locked, failed
+    blueprint_locked: bool = False
+    blueprint_locked_at: Optional[str] = None
+    blueprint_version: int = 0
+    structure_confidence: Optional[float] = None
+    question_structure_v2: Optional[dict] = None
+    question_structure_validation: Optional[dict] = None
+    question_structure_confidence: Optional[float] = None
+    question_structure_source: Optional[str] = None
+    question_structure_retry_count: Optional[int] = None
+    active_structure_hash: Optional[str] = None
+    effective_total_marks: Optional[float] = None
+    or_groups_map: Optional[dict] = None
+    attempt_rules: Optional[dict] = None
+    locked_at: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt_version: Optional[str] = None
+    pipeline_version: Optional[str] = None
+    extraction_hash: Optional[str] = None
+    extraction_version: Optional[int] = None
+    raw_layer_version: Optional[int] = None
+    raw_layer_ref: Optional[str] = None
+    blueprint_health: Optional[dict] = None
+    blueprint_pages: Optional[List[dict]] = None
+    blueprint_question_pages: Optional[dict] = None
+    global_anchor_list: Optional[List[dict]] = None
+    blueprint_spans: Optional[List[dict]] = None
+    blueprint_spans_raw: Optional[List[dict]] = None
+    blueprint_spans_structured: Optional[List[dict]] = None
+    missing_questions: Optional[List[Any]] = None
+    uncertain_questions: Optional[List[Any]] = None
+    anchor_confidence_map: Optional[dict] = None
+    span_previews: Optional[List[str]] = None
+    numbering_gaps: Optional[List[Any]] = None
+    duplicate_numbers: Optional[List[Any]] = None
+    probable_optional_groups: Optional[List[Any]] = None
+    textract_job_id: Optional[str] = None
+    page_texts: Optional[List[dict]] = None
+    anchors_detected: Optional[List[dict]] = None
+    spans_built: Optional[List[dict]] = None
+    span_structuring_errors: Optional[List[dict]] = None
+    college_pipeline_version: Optional[str] = None
+    universal_pipeline_version: Optional[str] = None
+    blueprint_diagnostics_ref: Optional[str] = None
     model_answer_file: Optional[str] = None
     teacher_id: str
     status: str = "draft"  # draft, processing, completed
@@ -49,6 +97,7 @@ class ExamCreate(BaseModel):
     questions: List[dict] = []  # Optional, will be populated by auto-extraction
     exam_mode: str = "teacher_upload"  # "teacher_upload" or "student_upload"
     show_question_paper: bool = False  # For student mode, whether to show question paper
+    blueprint_status: str = "pending"
 
 
 class StudentExamCreate(BaseModel):
@@ -90,6 +139,9 @@ class AnnotationData(BaseModel):
     line_id: Optional[str] = None  # Line identifier (e.g., Q1-L3)
     line_id_start: Optional[str] = None  # Line range start (e.g., Q1-L2)
     line_id_end: Optional[str] = None  # Line range end (e.g., Q1-L5)
+    segment_id: Optional[str] = None  # Segment identifier (e.g., P2-S3)
+    segment_id_start: Optional[str] = None  # Segment range start
+    segment_id_end: Optional[str] = None  # Segment range end
     anchor_x: Optional[float] = None
     anchor_y: Optional[float] = None
     margin_x: Optional[float] = None

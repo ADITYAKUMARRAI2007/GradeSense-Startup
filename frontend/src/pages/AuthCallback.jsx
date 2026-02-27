@@ -44,9 +44,11 @@ export default function AuthCallback() {
         console.log("Calling API:", `${API}/auth/google/callback`);
         
         // Exchange authorization code for session
+        const redirect_uri = `${window.location.origin}/callback`;
         const response = await axios.post(`${API}/auth/google/callback`, {
           code: code,
           state: state,
+          redirect_uri: redirect_uri,
         }, {
           withCredentials: true,
           timeout: 15000
@@ -54,6 +56,24 @@ export default function AuthCallback() {
 
         console.log("API Response:", response.data);
         const user = response.data;
+        const serverExamType = user.exam_type;
+
+        // Store token in localStorage so auth survives devtunnel/proxy chains
+        if (user.session_token) {
+          localStorage.setItem('session_token', user.session_token);
+        }
+        // Persist authoritative exam type once returned by server
+        if (serverExamType === "upsc" || serverExamType === "college") {
+          const priorChoice = localStorage.getItem("preferredExamType");
+          const priorLocked = localStorage.getItem("user_exam_type");
+          if (priorChoice && priorChoice !== serverExamType) {
+            alert(`Your saved exam type is ${serverExamType.toUpperCase()}. Continuing with that choice.`);
+          } else if (priorLocked && priorLocked !== serverExamType) {
+            alert(`Your account is locked to ${serverExamType.toUpperCase()}.`);
+          }
+          localStorage.setItem("user_exam_type", serverExamType);
+          localStorage.removeItem("preferredExamType");
+        }
 
         // Clear URL parameters
         window.history.replaceState(null, "", window.location.pathname);

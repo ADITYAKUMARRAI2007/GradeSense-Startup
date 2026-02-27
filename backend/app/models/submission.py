@@ -16,6 +16,7 @@ class SubQuestionScore(BaseModel):
 
 class QuestionScore(BaseModel):
     question_number: int
+    question_uuid: Optional[str] = None
     max_marks: float
     obtained_marks: float
     ai_feedback: str
@@ -44,5 +45,40 @@ class Submission(BaseModel):
     percentage: float = 0
     question_scores: List[QuestionScore] = []
     status: str = "pending"  # pending, ai_graded, teacher_reviewed
+    grading_state: Optional[str] = None  # pending, aligning, grading, done, blocked
+    blueprint_version_used: Optional[int] = None
+    grading_contract_version: Optional[str] = None
+    structure_confidence: Optional[float] = None
+    alignment_confidence: Optional[float] = None
+    grading_confidence: Optional[float] = None
+    overall_confidence: Optional[float] = None
+    alignment_status: Optional[str] = None  # pass, needs_review, blocked
+    alignment_coverage: Optional[float] = None
+    question_coverage_map: Optional[dict] = None
+    unmapped_answers: Optional[List[dict]] = None
+    duplicate_answers: Optional[List[dict]] = None
+    realign_required: Optional[bool] = None
+    objective_key_flags: Optional[dict] = None
+    model_name: Optional[str] = None
+    prompt_version: Optional[str] = None
+    pipeline_version: Optional[str] = None
+    mapping_status: Optional[str] = None  # pass, needs_review, failed
+    mapping_confidence: Optional[float] = None
+    continuity_confidence: Optional[float] = None
+    mapped_question_ratio: Optional[float] = None
+    mapping_coverage: Optional[float] = None
+    unresolved_questions: Optional[List[int]] = None
+    mapping_fail_reasons: Optional[List[str]] = None
+    answer_pages: Optional[List[dict]] = None
+    question_page_buckets: Optional[dict] = None
+    continuation_merges: Optional[List[dict]] = None
+    orphan_pages: Optional[List[int]] = None
+    anchor_confidence_summary: Optional[dict] = None
+    table_confidence_summary: Optional[dict] = None
+    alignment_confidence_summary: Optional[dict] = None
+    continuity_confidence_summary: Optional[dict] = None
+    orphan_block_count: Optional[int] = None
+    orphan_block_ratio: Optional[float] = None
+    packet_trace_ref: Optional[str] = None
     graded_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

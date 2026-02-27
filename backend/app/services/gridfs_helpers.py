@@ -71,6 +71,22 @@ async def get_exam_question_paper_images(exam_id: str) -> List[str]:
     
     return []
 
+
+async def get_exam_question_paper_pdf_bytes(exam_id: str) -> bytes:
+    """Get original question paper PDF bytes from GridFS when available."""
+    file_doc = await db.exam_files.find_one(
+        {"exam_id": exam_id, "file_type": "question_paper_pdf"},
+        {"_id": 0, "gridfs_id": 1},
+    )
+    if not file_doc or not file_doc.get("gridfs_id"):
+        return b""
+    try:
+        gridfs_file = fs.get(ObjectId(file_doc["gridfs_id"]))
+        return gridfs_file.read() or b""
+    except Exception as e:
+        logger.error(f"Error retrieving question paper PDF from GridFS: {e}")
+        return b""
+
 async def exam_has_model_answer(exam_id: str) -> bool:
     """Check if exam has model answer uploaded"""
     # Check new collection first

@@ -21,6 +21,21 @@ router = APIRouter(tags=["auth"])
 @router.post("/auth/google/callback")
 async def google_oauth_callback(request: Request, response: Response):
     """Handle Google OAuth callback and create session"""
+    # Debug logging: record incoming request metadata so we can verify requests from devtunnel
+    try:
+        logger.info(
+            "=== GOOGLE OAUTH CALLBACK REQUEST ===",
+            extra={
+                "origin": request.headers.get("origin"),
+                "referer": request.headers.get("referer"),
+                "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+                "client_ip": request.client.host if request.client else None,
+                "cookie_present": bool(request.cookies.get("session_token"))
+            }
+        )
+    except Exception:
+        logger.exception("Failed to log oauth request headers")
+
     data = await request.json()
     code = data.get("code")
     state = data.get("state")
@@ -34,10 +49,33 @@ async def google_oauth_callback(request: Request, response: Response):
         import json as json_module
         state_data = json_module.loads(state) if state else {}
         preferred_role = state_data.get("role", "teacher")
+        state_exam_type = state_data.get("exam_type")
+        if state_exam_type not in ["upsc", "college"]:
+            state_exam_type = None
 
         GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
         GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
-        REDIRECT_URI = f"http://localhost:3000/callback"
+        # Prefer redirect_uri from frontend (exact value used in the initial auth request)
+        data_redirect = None
+        try:
+            body = await request.json()
+            data_redirect = body.get("redirect_uri")
+        except Exception:
+            data_redirect = None
+
+        if data_redirect:
+            REDIRECT_URI = data_redirect
+        else:
+            # Fallback: derive redirect URI from the request origin so it works for devtunnels / production
+            origin = request.headers.get("origin") or request.headers.get("referer", "").rstrip("/")
+            if origin:
+                # Strip path from referer if present
+                from urllib.parse import urlparse
+                parsed = urlparse(origin)
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+            REDIRECT_URI = f"{origin or 'http://localhost:3000'}/callback"
+
+        logger.info(f"Using redirect_uri for token exchange: {REDIRECT_URI}")
 
         if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
             raise HTTPException(status_code=500, detail="Google OAuth not configured")
@@ -88,30 +126,41 @@ async def google_oauth_callback(request: Request, response: Response):
 
         if existing_student:
             user_id = existing_student["user_id"]
-            await db.users.update_one(
-                {"user_id": user_id},
-                {"$set": {
-                    "name": user_name,
-                    "picture": user_picture,
-                    "profile_completed": True,
-                    "last_login": datetime.now(timezone.utc).isoformat()
-                }}
-            )
+            update_fields = {
+                "name": user_name,
+                "picture": user_picture,
+                "profile_completed": True,
+                "last_login": datetime.now(timezone.utc).isoformat()
+            }
+            if not existing_student.get("exam_type") and state_exam_type:
+                update_fields.update({
+                    "exam_type": state_exam_type,
+                    "teacher_type": "competitive" if state_exam_type == "upsc" else "college",
+                    "exam_category": "UPSC" if state_exam_type == "upsc" else None
+                })
+            await db.users.update_one({"user_id": user_id}, {"$set": update_fields})
+            user_exam_type = update_fields.get("exam_type") or existing_student.get("exam_type")
             user_role = "student"
         else:
             existing_user = await db.users.find_one({"email": user_email}, {"_id": 0})
 
             if existing_user:
                 user_id = existing_user["user_id"]
-                await db.users.update_one(
-                    {"user_id": user_id},
-                    {"$set": {
-                        "name": user_name,
-                        "picture": user_picture,
-                        "profile_completed": True,
-                        "last_login": datetime.now(timezone.utc).isoformat()
-                    }}
-                )
+                update_fields = {
+                    "name": user_name,
+                    "picture": user_picture,
+                    "profile_completed": True,
+                    "last_login": datetime.now(timezone.utc).isoformat()
+                }
+                # If legacy account without exam_type, set it once from state; otherwise keep existing value
+                if not existing_user.get("exam_type") and state_exam_type:
+                    update_fields.update({
+                        "exam_type": state_exam_type,
+                        "teacher_type": "competitive" if state_exam_type == "upsc" else "college",
+                        "exam_category": "UPSC" if state_exam_type == "upsc" else None
+                    })
+                await db.users.update_one({"user_id": user_id}, {"$set": update_fields})
+                user_exam_type = update_fields.get("exam_type") or existing_user.get("exam_type")
                 user_role = existing_user.get("role", "teacher")
             else:
                 user_id = f"user_{uuid.uuid4().hex[:12]}"
@@ -125,9 +174,13 @@ async def google_oauth_callback(request: Request, response: Response):
                     "batches": [],
                     "profile_completed": False,
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                    "last_login": datetime.now(timezone.utc).isoformat()
+                    "last_login": datetime.now(timezone.utc).isoformat(),
+                    "exam_type": state_exam_type,
+                    "teacher_type": "competitive" if state_exam_type == "upsc" else ("college" if state_exam_type == "college" else None),
+                    "exam_category": "UPSC" if state_exam_type == "upsc" else None
                 }
                 await db.users.insert_one(new_user)
+                user_exam_type = state_exam_type
 
         # Create session token
         session_token = f"session_{uuid.uuid4().hex}"
@@ -140,13 +193,14 @@ async def google_oauth_callback(request: Request, response: Response):
             "expires_at": expires_at
         })
 
+        is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response.set_cookie(
             key="session_token",
             value=session_token,
             httponly=True,
             max_age=7 * 24 * 60 * 60,
-            samesite="lax",
-            secure=False,
+            samesite="none" if is_https else "lax",
+            secure=is_https,
             path="/"
         )
 
@@ -156,7 +210,8 @@ async def google_oauth_callback(request: Request, response: Response):
             "name": user_name,
             "picture": user_picture,
             "role": user_role,
-            "session_token": session_token
+            "session_token": session_token,
+            "exam_type": user_exam_type
         }
 
     except Exception as e:
@@ -226,13 +281,14 @@ async def register_user(request: RegisterRequest, response: Response, req: Reque
     }
     access_token = create_access_token(token_data)
 
+    is_https = req.url.scheme == "https" or req.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key="session_token",
         value=access_token,
         httponly=True,
         max_age=7 * 24 * 60 * 60,
-        samesite="lax",
-        secure=req.url.scheme == "https",
+        samesite="none" if is_https else "lax",
+        secure=is_https,
         path="/"
     )
 
@@ -297,7 +353,8 @@ async def login_user(request: LoginRequest, response: Response, req: Request):
         raise HTTPException(status_code=403, detail="Account disabled. Contact support.")
 
     update_fields = {"last_login": datetime.now(timezone.utc).isoformat()}
-    if request.exam_type in ["upsc", "college"]:
+    # Only set exam_type once; ignore conflicting selections on subsequent logins
+    if request.exam_type in ["upsc", "college"] and not user.get("exam_type"):
         update_fields["exam_type"] = request.exam_type
         update_fields["teacher_type"] = "competitive" if request.exam_type == "upsc" else "college"
         update_fields["exam_category"] = "UPSC" if request.exam_type == "upsc" else None
@@ -313,13 +370,14 @@ async def login_user(request: LoginRequest, response: Response, req: Request):
     }
     access_token = create_access_token(token_data)
 
+    is_https = req.url.scheme == "https" or req.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key="session_token",
         value=access_token,
         httponly=True,
         max_age=7 * 24 * 60 * 60,
-        samesite="lax",
-        secure=req.url.scheme == "https",
+        samesite="none" if is_https else "lax",
+        secure=is_https,
         path="/"
     )
 

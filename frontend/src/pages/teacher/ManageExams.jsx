@@ -105,6 +105,20 @@ export default function ManageExams({ user }) {
     }
   }, [selectedExam]);
 
+  const extractErrorMessage = (error, fallback = "Request failed") => {
+    const detail = error?.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (detail && typeof detail === "object") {
+      const message = detail.message || detail.error;
+      const missing = Array.isArray(detail.missing_question_numbers) ? detail.missing_question_numbers : [];
+      if (message && missing.length) {
+        return `${message} Missing: Q${missing.join(", Q")}`;
+      }
+      if (message) return message;
+    }
+    return error?.message || fallback;
+  };
+
   const fetchSubmissions = async (examId) => {
     try {
       setLoadingSubmissions(true);
@@ -195,7 +209,7 @@ export default function ManageExams({ user }) {
       }
 
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to upload papers");
+      toast.error(extractErrorMessage(error, "Failed to upload papers"));
       setUploadingPapers(false);
       setUploadProgress(0);
       setUploadStatus("");
@@ -227,7 +241,7 @@ export default function ManageExams({ user }) {
       
     } catch (error) {
       console.error("Error cancelling grading:", error);
-      toast.error(error.response?.data?.detail || "Failed to cancel grading");
+      toast.error(extractErrorMessage(error, "Failed to cancel grading"));
     }
   };
 
@@ -332,7 +346,7 @@ export default function ManageExams({ user }) {
       toast.success("Exam closed successfully");
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to close exam");
+      toast.error(extractErrorMessage(error, "Failed to close exam"));
     }
   };
 
@@ -346,20 +360,11 @@ export default function ManageExams({ user }) {
       toast.success("Exam reopened successfully");
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to reopen exam");
+      toast.error(extractErrorMessage(error, "Failed to reopen exam"));
     }
   };
 
   const handleExtractQuestions = async (exam) => {
-    // Check for documents - either in old storage (images array) or new storage (has_* flags)
-    const hasModelAnswer = exam.model_answer_images?.length > 0 || exam.has_model_answer;
-    const hasQuestionPaper = exam.question_paper_images?.length > 0 || exam.has_question_paper;
-    
-    if (!hasModelAnswer && !hasQuestionPaper) {
-      toast.error("No model answer or question paper uploaded for this exam");
-      return;
-    }
-
     setExtractingQuestions(true);
     try {
       const response = await axios.post(`${API}/exams/${exam.exam_id}/extract-questions`);
@@ -369,7 +374,7 @@ export default function ManageExams({ user }) {
       const updatedExam = await axios.get(`${API}/exams/${exam.exam_id}`);
       setSelectedExam(updatedExam.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to extract questions");
+      toast.error(extractErrorMessage(error, "Failed to extract questions"));
     } finally {
       setExtractingQuestions(false);
     }
@@ -390,7 +395,7 @@ export default function ManageExams({ user }) {
       const updatedExam = await axios.get(`${API}/exams/${exam.exam_id}`);
       setSelectedExam(updatedExam.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to infer topics");
+      toast.error(extractErrorMessage(error, "Failed to infer topics"));
     } finally {
       setInferringTopics(false);
     }
@@ -409,7 +414,7 @@ export default function ManageExams({ user }) {
       fetchSubmissions(selectedExam.exam_id);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to delete paper");
+      toast.error(extractErrorMessage(error, "Failed to delete paper"));
     }
   };
 
@@ -449,7 +454,7 @@ export default function ManageExams({ user }) {
       setSelectedExam(updatedExam.data);
       setEditMode(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to update exam");
+      toast.error(extractErrorMessage(error, "Failed to update exam"));
     } finally {
       setSavingEdit(false);
     }
@@ -466,7 +471,7 @@ export default function ManageExams({ user }) {
       fetchSubmissions(selectedExam.exam_id);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to regrade papers");
+      toast.error(extractErrorMessage(error, "Failed to regrade papers"));
     } finally {
       setRegrading(false);
     }
@@ -485,7 +490,7 @@ export default function ManageExams({ user }) {
         setSelectedExam(null);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to delete exam");
+      toast.error(extractErrorMessage(error, "Failed to delete exam"));
     }
   };
 
@@ -567,7 +572,7 @@ export default function ManageExams({ user }) {
       toast.success(response.data.message);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to re-extract questions");
+      toast.error(extractErrorMessage(error, "Failed to re-extract questions"));
     } finally {
       setReExtracting(false);
     }
@@ -590,7 +595,7 @@ export default function ManageExams({ user }) {
       setEditQuestionsDialogOpen(false);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to save questions");
+      toast.error(extractErrorMessage(error, "Failed to save questions"));
     } finally {
       setSavingQuestions(false);
     }
@@ -625,7 +630,7 @@ export default function ManageExams({ user }) {
       fetchData();
     } catch (error) {
       console.error("Upload error:", error);
-      toast.error(error.response?.data?.detail || "Failed to upload model answer");
+      toast.error(extractErrorMessage(error, "Failed to upload model answer"));
     } finally {
       setUploadingModelAnswer(false);
       event.target.value = ""; // Reset file input
@@ -661,7 +666,7 @@ export default function ManageExams({ user }) {
       fetchData();
     } catch (error) {
       console.error("Upload error:", error);
-      toast.error(error.response?.data?.detail || "Failed to upload question paper");
+      toast.error(extractErrorMessage(error, "Failed to upload question paper"));
     } finally {
       setUploadingQuestionPaper(false);
       event.target.value = ""; // Reset file input

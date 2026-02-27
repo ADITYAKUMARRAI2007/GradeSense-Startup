@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Optional, List
 import uuid
 import asyncio
-import os
 import pickle
 
 from app.database import db, fs
@@ -15,11 +14,32 @@ from app.models.exam import ExamCreate, StudentExamCreate
 from app.utils.serialization import serialize_doc
 from app.utils.validation import infer_upsc_paper
 from app.services.gridfs_helpers import get_exam_model_answer_images, get_exam_question_paper_images
-from app.config import logger
+from app.config import logger, get_llm_api_key
 from app.utils.concurrency import conversion_semaphore
 from app.utils.file_utils import convert_to_images
+from app.services.llm import LlmChat, UserMessage
+from app.utils.blueprint import (
+    compute_blueprint_health,
+    compute_attempt_rules_v2,
+    compute_effective_total_marks_v2,
+    compute_or_groups_map_v2,
+    compute_structure_hash,
+    derive_expected_question_count,
+    evaluate_blueprint_lock_readiness,
+    normalize_question_structure_v2,
+)
 
 router = APIRouter(tags=["exams"])
+
+
+def _derive_blueprint_health(exam_doc: dict, questions: List[dict]) -> dict:
+    expected_count = derive_expected_question_count(exam_doc or {}, fallback_questions=questions)
+    failed_chunks = ((exam_doc or {}).get("blueprint_health", {}) or {}).get("failed_chunks")
+    return compute_blueprint_health(
+        questions or [],
+        expected_count=expected_count,
+        failed_chunks=failed_chunks,
+    )
 
 
 @router.get("/exams")
@@ -87,6 +107,32 @@ async def create_exam(exam: ExamCreate, user: User = Depends(get_current_user)):
         "exam_date": exam.exam_date,
         "grading_mode": exam.grading_mode,
         "questions": exam.questions,
+        "question_extraction_status": "pending",
+        "question_paper_processing": False,
+        "processing_state": "idle",
+        "processing_lock_at": None,
+        "processing_lock_owner": None,
+        "blueprint_status": "pending",
+        "blueprint_locked": False,
+        "blueprint_locked_at": None,
+        "blueprint_version": 0,
+        "structure_confidence": 0.0,
+        "question_structure_v2": None,
+        "question_structure_validation": None,
+        "question_structure_confidence": 0.0,
+        "question_structure_source": None,
+        "question_structure_retry_count": 0,
+        "active_structure_hash": None,
+        "effective_total_marks": float(exam.total_marks or 0),
+        "or_groups_map": {},
+        "attempt_rules": {},
+        "locked_at": None,
+        "model_name": None,
+        "prompt_version": None,
+        "pipeline_version": None,
+        "extraction_hash": None,
+        "blueprint_health": _derive_blueprint_health({}, exam.questions or []),
+        "college_pipeline_version": "v3" if str(exam.exam_type).lower() == "college" else None,
         "teacher_id": user.user_id,
         "status": "draft",
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -135,7 +181,49 @@ async def update_exam(exam_id: str, update_data: dict, user: User = Depends(get_
     update_fields = {}
 
     if "questions" in update_data:
+        # Removed 409 check - allow editing even during extraction
+        # extraction_status = str(exam.get("question_extraction_status", "")).lower()
+        # if exam.get("question_paper_processing") or extraction_status == "processing":
+        #     raise HTTPException(
+        #         status_code=409,
+        #         detail="Question extraction is in progress. Wait for completion before editing questions.",
+        #     )
+        extraction_status = str(exam.get("question_extraction_status", "")).lower()
+        if str(exam.get("blueprint_status", "pending")).lower() == "ready_locked":
+            raise HTTPException(
+                status_code=423,
+                detail="Blueprint is locked. Unlock blueprint before editing questions.",
+            )
+        existing_questions = exam.get("questions") or []
+        new_questions = update_data["questions"] or []
+        if (
+            exam.get("has_question_paper")
+            and extraction_status == "completed"
+            and len(existing_questions) >= 5
+            and len(new_questions) <= 1
+            and not bool(update_data.get("force_question_override"))
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": (
+                        "Refusing risky question overwrite: extracted blueprint has many questions, "
+                        "but update payload contains 0/1 question."
+                    ),
+                    "required_action": (
+                        "Use Auto-Extract flow, or send force_question_override=true only if this is intentional."
+                    ),
+                    "existing_question_count": len(existing_questions),
+                    "incoming_question_count": len(new_questions),
+                },
+            )
         update_fields["questions"] = update_data["questions"]
+        health = _derive_blueprint_health(exam, update_data["questions"] or [])
+        update_fields["blueprint_health"] = health
+        update_fields["blueprint_status"] = "ready_unlocked" if health.get("question_count", 0) > 0 else "pending"
+        update_fields["blueprint_locked"] = False
+        update_fields["blueprint_version"] = int(exam.get("blueprint_version", 0) or 0) + 1
+        update_fields["blueprint_locked_at"] = None
         logger.info(f"Updating {len(update_data['questions'])} questions for exam {exam_id}")
 
     if "exam_name" in update_data:
@@ -160,6 +248,208 @@ async def update_exam(exam_id: str, update_data: dict, user: User = Depends(get_
         logger.info(f"Updated exam {exam_id}: {list(update_fields.keys())}")
 
     return {"message": "Exam updated successfully", "updated_fields": list(update_fields.keys())}
+
+
+@router.get("/exams/{exam_id}/blueprint-health")
+async def get_blueprint_health(exam_id: str, user: User = Depends(get_current_user)):
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can view blueprint health")
+
+    exam = await db.exams.find_one({"exam_id": exam_id, "teacher_id": user.user_id}, {"_id": 0})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    questions = exam.get("questions", []) or []
+    health = _derive_blueprint_health(exam, questions)
+    await db.exams.update_one(
+        {"exam_id": exam_id},
+        {"$set": {"blueprint_health": health, "blueprint_checked_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    return {
+        "exam_id": exam_id,
+        "blueprint_status": exam.get("blueprint_status", "pending"),
+        "blueprint_locked": bool(exam.get("blueprint_locked", False)),
+        "blueprint_version": int(exam.get("blueprint_version", 0) or 0),
+        "blueprint_locked_at": exam.get("blueprint_locked_at"),
+        "blueprint_health": health,
+    }
+
+
+@router.post("/exams/{exam_id}/lock-blueprint")
+async def lock_blueprint(exam_id: str, user: User = Depends(get_current_user)):
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can lock blueprint")
+
+    exam = await db.exams.find_one({"exam_id": exam_id, "teacher_id": user.user_id}, {"_id": 0})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    if str(exam.get("blueprint_status", "pending")).lower() == "ready_locked":
+        return {
+            "message": "Blueprint already locked",
+            "exam_id": exam_id,
+            "blueprint_status": "ready_locked",
+            "blueprint_locked": True,
+            "blueprint_locked_at": exam.get("blueprint_locked_at"),
+            "blueprint_health": exam.get("blueprint_health"),
+        }
+
+    # Removed 409 check - allow locking even during extraction
+    # extraction_status = str(exam.get("question_extraction_status", "")).lower()
+    # if exam.get("question_paper_processing") or extraction_status == "processing":
+    #     raise HTTPException(status_code=409, detail="Question extraction is still processing")
+
+    questions = exam.get("questions", []) or []
+    if not questions:
+        raise HTTPException(status_code=400, detail="No extracted questions to lock")
+
+    readiness = evaluate_blueprint_lock_readiness(exam, questions=questions)
+    health = readiness.get("health") or {}
+    if not readiness.get("can_lock"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Blueprint lock blocked: blueprint health check failed",
+                "question_count": int(readiness.get("question_count", 0) or 0),
+                "question_paper_pages": int(readiness.get("question_paper_pages", 0) or 0),
+                "issues": readiness.get("issues", []),
+                "health": health,
+            },
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    question_structure_v2 = exam.get("question_structure_v2") or {
+        "questions": [
+            {
+                "number": q.get("question_number"),
+                "section": None,
+                "instruction": None,
+                "question_text": q.get("question_text") or q.get("rubric") or "",
+                "question_type": q.get("question_type", "descriptive"),
+                "marks": float(q.get("max_marks") or 0.0),
+                "options": None,
+                "subquestions": [
+                    {
+                        "label": sq.get("sub_id"),
+                        "text": sq.get("rubric") or "",
+                        "marks": float(sq.get("max_marks") or 0.0),
+                    }
+                    for sq in (q.get("sub_questions") or [])
+                ],
+                "or_group_id": q.get("or_group_id"),
+            }
+            for q in questions
+        ],
+        "total_questions": len(questions),
+        "total_marks": float(exam.get("total_marks") or 0.0),
+        "numbering_contiguous": bool(health.get("numbering_contiguous", False)),
+    }
+    question_structure_v2 = normalize_question_structure_v2(question_structure_v2)
+    structure_hash = compute_structure_hash(question_structure_v2)
+    effective_total_marks = compute_effective_total_marks_v2(question_structure_v2)
+    or_groups_map = compute_or_groups_map_v2(question_structure_v2)
+    attempt_rules = compute_attempt_rules_v2(question_structure_v2)
+    next_version = int(exam.get("blueprint_version", 0) or 0) + 1
+
+    await db.exam_blueprint_versions.insert_one(
+        {
+            "exam_id": exam_id,
+            "blueprint_version": next_version,
+            "structure_hash": structure_hash,
+            "question_count": len(question_structure_v2.get("questions") or []),
+            "effective_total_marks": effective_total_marks,
+            "or_groups_map": or_groups_map,
+            "attempt_rules": attempt_rules,
+            "locked_at": now,
+            "question_structure_v2": question_structure_v2,
+            "validation_report": {"health": health},
+            "structure_confidence": float(exam.get("question_structure_confidence") or 0.0),
+            "model_name": exam.get("model_name"),
+            "prompt_version": exam.get("prompt_version"),
+            "pipeline_version": exam.get("pipeline_version"),
+            "extraction_hash": exam.get("extraction_hash"),
+            "created_at": now,
+        }
+    )
+    logger.info(
+        "BLUEPRINT_VERSION_CREATED exam_id=%s version=%s structure_hash=%s",
+        exam_id,
+        next_version,
+        structure_hash,
+    )
+
+    await db.exams.update_one(
+        {"exam_id": exam_id},
+        {"$set": {
+            "blueprint_status": "ready_locked",
+            "blueprint_locked": True,
+            "blueprint_locked_at": now,
+            "blueprint_version": next_version,
+            "blueprint_health": health,
+            "question_structure_v2": question_structure_v2,
+            "active_structure_hash": structure_hash,
+            "effective_total_marks": effective_total_marks,
+            "or_groups_map": or_groups_map,
+            "attempt_rules": attempt_rules,
+            "locked_at": now,
+        }},
+    )
+    realign_update = await db.submissions.update_many(
+        {
+            "exam_id": exam_id,
+            "$or": [
+                {"blueprint_version_used": {"$exists": False}},
+                {"blueprint_version_used": {"$ne": next_version}},
+            ],
+        },
+        {"$set": {"realign_required": True}},
+    )
+    if int(realign_update.modified_count or 0) > 0:
+        logger.info(
+            "REALIGN_REQUIRED exam_id=%s version=%s affected_submissions=%s",
+            exam_id,
+            next_version,
+            int(realign_update.modified_count or 0),
+        )
+    logger.info("OR_RULES_FROZEN exam_id=%s version=%s", exam_id, next_version)
+    logger.info("BLUEPRINT_LOCKED exam_id=%s version=%s source=manual", exam_id, next_version)
+    return {
+        "message": "Blueprint locked",
+        "exam_id": exam_id,
+        "blueprint_status": "ready_locked",
+        "blueprint_locked": True,
+        "blueprint_locked_at": now,
+        "blueprint_health": health,
+    }
+
+
+@router.post("/exams/{exam_id}/unlock-blueprint")
+async def unlock_blueprint(exam_id: str, user: User = Depends(get_current_user)):
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can unlock blueprint")
+
+    exam = await db.exams.find_one({"exam_id": exam_id, "teacher_id": user.user_id}, {"_id": 0})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    questions = exam.get("questions", []) or []
+    health = _derive_blueprint_health(exam, questions)
+    await db.exams.update_one(
+        {"exam_id": exam_id},
+        {"$set": {
+            "blueprint_status": "ready_unlocked" if questions else "pending",
+            "blueprint_locked": False,
+            "blueprint_locked_at": None,
+            "blueprint_health": health,
+        }},
+    )
+    return {
+        "message": "Blueprint unlocked",
+        "exam_id": exam_id,
+        "blueprint_status": "ready_unlocked" if questions else "pending",
+        "blueprint_locked": False,
+        "blueprint_health": health,
+    }
 
 
 @router.delete("/exams/{exam_id}")
@@ -251,8 +541,8 @@ async def reopen_exam(exam_id: str, user: User = Depends(get_current_user)):
 
 @router.post("/exams/{exam_id}/extract-questions")
 async def extract_and_update_questions(exam_id: str, user: User = Depends(get_current_user)):
-    """Extract question text from question paper OR model answer and update exam"""
-    from app.services.extraction import extract_questions_from_question_paper, extract_questions_from_model_answer
+    """Extract question structure from question paper, else answer sheets."""
+    from app.services.extraction import auto_extract_questions
 
     if user.role != "teacher":
         raise HTTPException(status_code=403, detail="Only teachers can update exams")
@@ -260,73 +550,22 @@ async def extract_and_update_questions(exam_id: str, user: User = Depends(get_cu
     exam = await db.exams.find_one({"exam_id": exam_id, "teacher_id": user.user_id}, {"_id": 0})
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
+    if str(exam.get("blueprint_status", "pending")).lower() == "ready_locked":
+        raise HTTPException(status_code=423, detail="Blueprint is locked. Unlock before re-extracting questions.")
 
-    question_paper_imgs = await get_exam_question_paper_images(exam_id)
-    model_answer_imgs = await get_exam_model_answer_images(exam_id)
-
-    extracted_questions = []
-    source = ""
-
-    if question_paper_imgs:
-        source = "question paper"
-        extracted_questions = await extract_questions_from_question_paper(
-            question_paper_imgs,
-            len(exam.get("questions", []))
-        )
-    elif model_answer_imgs:
-        source = "model answer"
-        extracted_questions = await extract_questions_from_model_answer(
-            model_answer_imgs,
-            len(exam.get("questions", []))
-        )
-    else:
-        raise HTTPException(status_code=400, detail="No question paper or model answer found. Please upload one first.")
-
-    if not extracted_questions:
-        raise HTTPException(status_code=500, detail=f"Failed to extract questions from {source}")
-
-    questions = exam.get("questions", [])
-    updated_count = 0
-
-    for i, q in enumerate(questions):
-        if i < len(extracted_questions):
-            extracted_q = extracted_questions[i]
-
-            if isinstance(extracted_q, dict):
-                rubric_text = extracted_q.get("rubric", "")
-                question_text = extracted_q.get("question_text", "") or extracted_q.get("rubric", "")
-
-                if "sub_questions" in extracted_q and extracted_q["sub_questions"]:
-                    q["sub_questions"] = extracted_q["sub_questions"]
-                    logger.info(f"Updated Q{q.get('question_number')} with {len(extracted_q['sub_questions'])} sub-questions")
-            else:
-                rubric_text = str(extracted_q)
-                question_text = str(extracted_q)
-
-            q["rubric"] = rubric_text
-            q["question_text"] = question_text
-            updated_count += 1
-
-    await db.exams.update_one(
-        {"exam_id": exam_id},
-        {"$set": {"questions": questions}}
+    result = await auto_extract_questions(
+        exam_id=exam_id,
+        force=True,
+        use_model_answer_fallback=False
     )
 
-    for q in questions:
-        await db.questions.update_one(
-            {"exam_id": exam_id, "question_number": q.get("question_number")},
-            {"$set": {
-                "rubric": q.get("rubric", ""),
-                "question_text": q.get("question_text", ""),
-                "sub_questions": q.get("sub_questions", [])
-            }},
-            upsert=True
-        )
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to extract questions"))
 
     return {
-        "message": f"Successfully extracted {updated_count} questions from {source}",
-        "updated_count": updated_count,
-        "source": source
+        "message": result.get("message", "Questions extracted"),
+        "updated_count": result.get("count", 0),
+        "source": result.get("source", "")
     }
 
 
@@ -341,8 +580,14 @@ async def re_extract_question_structure(exam_id: str, user: User = Depends(get_c
     exam = await db.exams.find_one({"exam_id": exam_id, "teacher_id": user.user_id}, {"_id": 0})
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
+    if str(exam.get("blueprint_status", "pending")).lower() == "ready_locked":
+        raise HTTPException(status_code=423, detail="Blueprint is locked. Unlock before re-extracting questions.")
 
-    result = await auto_extract_questions(exam_id, force=True)
+    result = await auto_extract_questions(
+        exam_id=exam_id,
+        force=True,
+        use_model_answer_fallback=False
+    )
 
     if not result.get("success"):
         raise HTTPException(
@@ -365,7 +610,6 @@ async def infer_question_topics(
     user: User = Depends(get_current_user)
 ):
     """Use AI to infer topic tags for each question in an exam"""
-    import google.generativeai as genai
     import json
 
     if user.role != "teacher":
@@ -399,15 +643,17 @@ Questions:
 Return ONLY valid JSON, no explanation."""
 
     try:
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-        chat = model.start_chat(history=[])
-        loop = asyncio.get_event_loop()
-        response = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: chat.send_message(prompt)),
+        chat = LlmChat(
+            api_key=get_llm_api_key() or "",
+            session_id=f"infer_topics_{uuid.uuid4().hex[:8]}",
+            system_message="You are an exam topic classifier."
+        ).with_model("gemini", "gemini-2.5-flash").with_params(temperature=0)
+
+        response_text = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=prompt)),
             timeout=60.0
         )
-
-        response_text = response.text.strip()
+        response_text = response_text.strip()
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         elif "```" in response_text:
@@ -506,6 +752,12 @@ async def create_student_upload_exam(
         "question_paper_ref": qp_file_ref,
         "model_answer_ref": ma_file_ref,
         "questions": [q.dict() for q in exam_data.questions],
+        "question_extraction_status": "completed" if exam_data.questions else "pending",
+        "question_paper_processing": False,
+        "blueprint_status": "ready_locked" if exam_data.questions else "pending",
+        "blueprint_locked_at": datetime.now(timezone.utc).isoformat() if exam_data.questions else None,
+        "blueprint_version": 1 if exam_data.questions else 0,
+        "blueprint_health": _derive_blueprint_health({}, [q.dict() for q in exam_data.questions]),
         "teacher_id": user.user_id,
         "selected_students": exam_data.student_ids,
         "created_at": datetime.now(timezone.utc).isoformat(),

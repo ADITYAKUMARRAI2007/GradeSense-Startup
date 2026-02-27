@@ -16,6 +16,8 @@ node_modules/
 
 # Testing
 /coverage
+.pytest_cache/
+test_reports/
 
 # Next.js
 /.next/
@@ -26,6 +28,7 @@ next-env.d.ts
 # Production builds
 /build
 dist/
+frontend/build/
 
 # Environment files
 *.env
@@ -44,6 +47,8 @@ dump.rdb
 # System files
 .DS_Store
 *.pem
+*.pdf
+
 
 # Python
 __pycache__/
@@ -70,3 +75,4 @@ chainlit.md
 
 # Build caches
 .cache/
+.tmp/

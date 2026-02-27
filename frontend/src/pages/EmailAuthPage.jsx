@@ -6,7 +6,7 @@ import { Eye, EyeOff, Mail, Lock, User, ArrowLeft } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/$/, "");
 const API = `${API_BASE}/api`;
 
 export default function EmailAuthPage() {
@@ -60,7 +60,19 @@ export default function EmailAuthPage() {
       });
 
       toast.success(isLogin ? "Login successful!" : "Account created successfully!");
-      
+
+      // Store token in localStorage so auth survives devtunnel/proxy chains
+      if (response.data.token) {
+        localStorage.setItem('session_token', response.data.token);
+      } else if (response.data.session_token) {
+        localStorage.setItem('session_token', response.data.session_token);
+      }
+      // Lock exam type once the server accepts it
+      if (response.data.exam_type === "upsc" || response.data.exam_type === "college") {
+        localStorage.setItem("user_exam_type", response.data.exam_type);
+        localStorage.removeItem("preferredExamType");
+      }
+
       // Redirect based on role and profile completion
       const profileCompleted = response.data.profile_completed !== false; // Default to true if not specified
       

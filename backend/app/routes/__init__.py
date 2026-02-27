@@ -17,6 +17,7 @@ from .notifications import router as notifications_router
 from .search import router as search_router
 from .admin import router as admin_router
 from .debug import router as debug_router
+from .universal import router as universal_router
 
 
 def register_all_routes(api_router: APIRouter):
@@ -37,3 +38,4 @@ def register_all_routes(api_router: APIRouter):
     api_router.include_router(search_router)
     api_router.include_router(admin_router)
     api_router.include_router(debug_router)
+    api_router.include_router(universal_router)

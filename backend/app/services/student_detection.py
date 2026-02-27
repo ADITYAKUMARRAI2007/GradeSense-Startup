@@ -4,15 +4,13 @@ Student info extraction from papers and filenames, student creation.
 
 import uuid
 import asyncio
-import base64
 import json
 from typing import List
 from datetime import datetime, timezone
 
-import google.generativeai as genai
-
 from app.database import db
 from app.config import logger, get_llm_api_key
+from app.services.llm import LlmChat, UserMessage, ImageContent
 
 
 async def extract_student_info_from_paper(file_images: List[str], filename: str) -> tuple:
@@ -43,33 +41,26 @@ Important:
 - If you cannot find either field, use null
 - Do NOT include any explanation, ONLY return the JSON"""
 
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            system_instruction=system_prompt
-        )
-        chat = model.start_chat(history=[])
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"student_detect_{uuid.uuid4().hex[:8]}",
+            system_message=system_prompt
+        ).with_model("gemini", "gemini-2.5-flash").with_params(temperature=0)
         
         # Use first page only (usually has student info)
         prompt_text = "Extract the student ID/roll number and name from this answer sheet."
         
-        # Create content with image
-        # Decode base64 image for Gemini API
-        image_data = base64.b64decode(file_images[0])
-        
-        # Create inline data format for Gemini (using dict format instead of deprecated PartContentType)
-        content = [
-            prompt_text,
-            {"mime_type": "image/jpeg", "data": image_data}
-        ]
-        
+        user_message = UserMessage(
+            text=prompt_text,
+            file_contents=[ImageContent(image_base64=file_images[0])]
+        )
+
         # Make API call with timeout
-        loop = asyncio.get_event_loop()
-        response = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: chat.send_message(content)),
+        response_text = await asyncio.wait_for(
+            chat.send_message(user_message),
             timeout=120.0
         )
-        
-        response_text = response.text.strip()
+        response_text = response_text.strip()
         
         # Parse JSON response
         if "```json" in response_text:

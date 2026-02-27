@@ -6,16 +6,25 @@ from typing import Optional, List
 import asyncio
 import pickle
 import base64
+import math
+import os
 
 from bson import ObjectId
 
 from app.database import db, fs
 from app.deps import get_current_user
 from app.models.user import User
+from app.services.score_normalization import normalize_submission_scores
 from app.utils.serialization import serialize_doc
-from app.config import logger
+from app.config import (
+    logger,
+)
 
 router = APIRouter(tags=["submissions"])
+
+MAPPED_QUESTION_RATIO_MIN = float(os.getenv("MAPPED_QUESTION_RATIO_MIN", "0.85"))
+MAPPING_COVERAGE_GATE_MIN = float(os.getenv("MAPPING_COVERAGE_GATE_MIN", "0.75"))
+UNRESOLVED_RATIO_MAX = float(os.getenv("UNRESOLVED_RATIO_MAX", "0.10"))
 
 
 @router.get("/submissions")
@@ -127,8 +136,24 @@ async def get_submission(
         # Get exam to check visibility settings for students
         exam = await db.exams.find_one(
             {"exam_id": submission["exam_id"]},
-            {"_id": 0, "questions": 1, "results_published": 1, "student_visibility": 1}
+            {"_id": 0, "questions": 1, "results_published": 1, "student_visibility": 1, "total_marks": 1}
         )
+
+        # Self-heal legacy score metadata (e.g. 0/0 max marks with valid feedback)
+        if exam:
+            normalized = normalize_submission_scores(submission, exam, source="read")
+            submission["question_scores"] = normalized["question_scores"]
+            submission["total_score"] = normalized["total_score"]
+            submission["percentage"] = normalized["percentage"]
+            if normalized["changed"]:
+                await db.submissions.update_one(
+                    {"submission_id": submission_id},
+                    {"$set": {
+                        "question_scores": normalized["question_scores"],
+                        "total_score": normalized["total_score"],
+                        "percentage": normalized["percentage"],
+                    }}
+                )
 
         # For students, enforce visibility settings
         if user.role == "student":
@@ -254,10 +279,21 @@ async def update_submission(
 
     exam = await db.exams.find_one(
         {"exam_id": original_submission["exam_id"]},
-        {"_id": 0, "total_marks": 1, "teacher_id": 1}
+        {"_id": 0, "total_marks": 1, "teacher_id": 1, "questions": 1}
     )
-    total_marks = exam.get("total_marks", 100) if exam else 100
-    percentage = (total_score / total_marks) * 100 if total_marks > 0 else 0
+    normalized = normalize_submission_scores(
+        {
+            "submission_id": submission_id,
+            "question_scores": question_scores,
+            "total_score": total_score,
+            "percentage": updates.get("percentage"),
+        },
+        exam or {},
+        source="manual_update",
+    )
+    question_scores = normalized["question_scores"]
+    total_score = normalized["total_score"]
+    percentage = normalized["percentage"]
 
     asyncio.create_task(track_teacher_edits(
         submission_id=submission_id,
@@ -319,6 +355,208 @@ async def delete_submission(submission_id: str, user: User = Depends(get_current
     await db.re_evaluations.delete_many({"submission_id": submission_id})
 
     return {"message": "Submission deleted successfully"}
+
+
+@router.post("/submissions/{submission_id}/preflight-map")
+async def preflight_submission_mapping(submission_id: str, user: User = Depends(get_current_user)):
+    """Dry-run mapping report without grading; used to gate risky runs."""
+    if user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can run preflight mapping")
+
+    from app.layers.ai_structured.engine import preflight_submission_mapping as ai_preflight
+
+    try:
+        return await ai_preflight(submission_id=submission_id, user_id=user.user_id)
+    except RuntimeError as exc:
+        reason = str(exc)
+        if reason == "submission_not_found":
+            raise HTTPException(status_code=404, detail="Submission not found")
+        if reason == "exam_not_found":
+            raise HTTPException(status_code=404, detail="Exam not found")
+        if reason == "blueprint_not_locked":
+            raise HTTPException(status_code=409, detail="Blueprint is not locked for this exam")
+        raise HTTPException(status_code=400, detail=f"Preflight failed: {reason}")
+    except Exception as exc:
+        logger.error("Preflight mapping failed for submission %s: %s", submission_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Preflight failed: {exc}")
+
+    submission = await db.submissions.find_one(
+        {"submission_id": submission_id},
+        {"_id": 0, "submission_id": 1, "exam_id": 1, "file_images": 1, "images_gridfs_id": 1},
+    )
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    exam = await db.exams.find_one(
+        {"exam_id": submission.get("exam_id"), "teacher_id": user.user_id},
+        {"_id": 0, "exam_id": 1, "exam_type": 1, "questions": 1, "blueprint_status": 1, "blueprint_health": 1},
+    )
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    images = submission.get("file_images") or []
+    if not images and submission.get("images_gridfs_id"):
+        try:
+            img_oid = ObjectId(submission["images_gridfs_id"])
+            if fs.exists(img_oid):
+                images = pickle.loads(fs.get(img_oid).read())
+        except Exception as e:
+            logger.error(f"Preflight image load failed for {submission_id}: {e}")
+
+    if not images:
+        return {
+            "submission_id": submission_id,
+            "exam_id": submission.get("exam_id"),
+            "mapping_status": "failed",
+            "fail_reasons": ["missing_submission_images"],
+            "message": "No submission images available for mapping preflight.",
+        }
+
+    questions = exam.get("questions", []) or []
+    expected_qs = sorted(
+        {
+            int(q.get("question_number"))
+            for q in questions
+            if q.get("question_number") is not None and str(q.get("question_number", "")).isdigit()
+        }
+    )
+    if not expected_qs:
+        return {
+            "submission_id": submission_id,
+            "exam_id": submission.get("exam_id"),
+            "mapping_status": "failed",
+            "fail_reasons": ["missing_exam_questions"],
+            "message": "No exam questions available for mapping preflight.",
+        }
+
+    question_paper_pdf_bytes = await get_exam_question_paper_pdf_bytes(submission.get("exam_id"))
+    exam_type = str(exam.get("exam_type", "") or "").lower()
+    use_universal_v2 = bool(
+        False
+    )
+    use_aws_pipeline = bool(
+        exam_type != "upsc"
+    )
+    use_college_v2 = bool(
+        COLLEGE_V2_PIPELINE_ENABLED
+        and exam_type != "upsc"
+        and not use_universal_v2
+        and not use_aws_pipeline
+    )
+    pipeline = None
+    if use_universal_v2:
+        pipeline, question_map = run_universal_pipeline_v2(
+            exam_id=submission.get("exam_id") or "unknown_exam",
+            exam_questions=questions,
+            answer_images=images,
+            question_paper_pdf_bytes=question_paper_pdf_bytes or None,
+            failed_chunks=((exam.get("blueprint_health") or {}).get("failed_chunks") or []),
+        )
+    elif use_aws_pipeline:
+        pipeline, question_map = run_aws_pipeline_v3(
+            exam_id=submission.get("exam_id") or "unknown_exam",
+            exam_questions=questions,
+            answer_images=images,
+        )
+    elif use_college_v2:
+        pipeline, question_map = run_college_pipeline_v3(
+            exam_id=submission.get("exam_id") or "unknown_exam",
+            exam_questions=questions,
+            answer_images=images,
+            question_paper_pdf_bytes=question_paper_pdf_bytes or None,
+            failed_chunks=((exam.get("blueprint_health") or {}).get("failed_chunks") or []),
+        )
+    else:
+        pipeline = run_answer_packet_pipeline(
+            answer_images=images,
+            questions=questions,
+            question_paper_pdf_bytes=question_paper_pdf_bytes or None,
+        )
+        question_map = pipeline_result_to_question_map(pipeline)
+    packet_meta = (question_map.get("_meta", {}) or {}).copy()
+
+    detected_qs = sorted(
+        [
+            int(qn)
+            for qn, payload in question_map.items()
+            if isinstance(qn, int) and isinstance(payload, dict) and (payload.get("segments") or [])
+        ]
+    )
+    mapped_question_ratio = len(detected_qs) / float(len(expected_qs)) if expected_qs else 0.0
+    mapping_coverage = float(packet_meta.get("mapping_coverage", 0.0) or 0.0)
+    unresolved_questions = sorted(set(expected_qs) - set(detected_qs))
+    unresolved_limit = max(2, int(math.ceil(len(expected_qs) * UNRESOLVED_RATIO_MAX)))
+
+    fail_reasons: List[str] = []
+    if mapped_question_ratio < MAPPED_QUESTION_RATIO_MIN:
+        fail_reasons.append(
+            f"mapped_question_ratio_below_threshold:{mapped_question_ratio:.3f}<{MAPPED_QUESTION_RATIO_MIN:.3f}"
+        )
+    if mapping_coverage < MAPPING_COVERAGE_GATE_MIN:
+        fail_reasons.append(
+            f"mapping_coverage_below_threshold:{mapping_coverage:.3f}<{MAPPING_COVERAGE_GATE_MIN:.3f}"
+        )
+    if len(unresolved_questions) > unresolved_limit:
+        fail_reasons.append(f"too_many_unresolved_questions:{len(unresolved_questions)}>{unresolved_limit}")
+    for reason in (packet_meta.get("mapping_fail_reasons") or []):
+        if reason not in fail_reasons:
+            fail_reasons.append(str(reason))
+
+    packet_summary = {
+        str(qn): {
+            "page_refs": (question_map.get(qn, {}) or {}).get("page_refs", []),
+            "segment_count": len((question_map.get(qn, {}) or {}).get("segments", [])),
+            "subquestion_count": int((question_map.get(qn, {}) or {}).get("subquestion_count", 0) or 0),
+            "mapping_confidence": float((question_map.get(qn, {}) or {}).get("mapping_confidence", 0.0) or 0.0),
+            "table_segments": (question_map.get(qn, {}) or {}).get("table_segments", []),
+            "working_note_segments": (question_map.get(qn, {}) or {}).get("working_note_segments", []),
+            "mapping_trace": (question_map.get(qn, {}) or {}).get("mapping_trace", []),
+            "start_anchor": (question_map.get(qn, {}) or {}).get("start_anchor"),
+            "end_anchor": (question_map.get(qn, {}) or {}).get("end_anchor"),
+        }
+        for qn in detected_qs
+    }
+
+    status = "pass" if not fail_reasons else "needs_review"
+    if str(packet_meta.get("mapping_status", "") or "").lower() == "failed":
+        status = "failed"
+    confidence_vectors = (pipeline or {}).get("confidence_vectors", []) if isinstance(pipeline, dict) else []
+    aligned_answers = (pipeline or {}).get("aligned_answers", []) if isinstance(pipeline, dict) else []
+    return {
+        "submission_id": submission_id,
+        "exam_id": submission.get("exam_id"),
+        "pipeline": packet_meta.get("pipeline", "legacy"),
+        "blueprint_status": exam.get("blueprint_status", "pending"),
+        "mapping_status": status,
+        "mapped_question_ratio": round(mapped_question_ratio, 4),
+        "mapping_coverage": round(mapping_coverage, 4),
+        "unresolved_questions": unresolved_questions,
+        "unresolved_limit": unresolved_limit,
+        "expected_questions": expected_qs,
+        "detected_questions": detected_qs,
+        "packets_generated": int(packet_meta.get("packets_generated", len(detected_qs)) or len(detected_qs)),
+        "subpacket_count": int(packet_meta.get("subpacket_count", 0) or 0),
+        "low_confidence_questions": packet_meta.get("low_confidence_questions", []),
+        "consistency_flags": packet_meta.get("consistency_flags", []),
+        "fail_reasons": fail_reasons,
+        "packet_summary": packet_summary,
+        "confidence_vectors": confidence_vectors,
+        "aligned_answers": [
+            {
+                "question_id": int(row.get("question_id", 0) or 0),
+                "packet_id": row.get("packet_id") or ((row.get("packet") or {}).get("packet_id")),
+                "aligned_by": row.get("aligned_by"),
+                "alignment_confidence": float(row.get("alignment_confidence", 0.0) or 0.0),
+            }
+            for row in (aligned_answers or [])
+        ],
+        "phase_timings": packet_meta.get("phase_timings", {}),
+        "continuity_confidence_summary": packet_meta.get("continuity_confidence_summary", {}),
+        "orphan_block_count": int(packet_meta.get("orphan_block_count", 0) or 0),
+        "orphan_block_ratio": float(packet_meta.get("orphan_block_ratio", 0.0) or 0.0),
+        "semantic_attach_events": int(packet_meta.get("semantic_attach_events", 0) or 0),
+        "table_continuity_events": int(packet_meta.get("table_continuity_events", 0) or 0),
+    }
 
 
 @router.get("/exams/{exam_id}/submissions")

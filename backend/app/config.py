@@ -6,7 +6,6 @@ import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-import google.generativeai as genai
 
 ROOT_DIR = Path(__file__).parent.parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,8 +37,45 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
     logger.warning("⚠️ No GEMINI_API_KEY found - AI grading will fail")
-else:
-    genai.configure(api_key=GEMINI_API_KEY)
+
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+COLLEGE_V2_PIPELINE_ENABLED = _env_flag("COLLEGE_V2_PIPELINE_ENABLED", "true")
+COLLEGE_V2_HARD_STOP = _env_flag("COLLEGE_V2_HARD_STOP", "true")
+UNIVERSAL_PIPELINE_ENABLED = _env_flag("UNIVERSAL_PIPELINE_ENABLED", "false")
+UNIVERSAL_HARD_STOP = _env_flag("UNIVERSAL_HARD_STOP", "true")
+UNIVERSAL_PIPELINE_EXAM_TYPES = [
+    item.strip().lower()
+    for item in os.getenv("UNIVERSAL_PIPELINE_EXAM_TYPES", "college,school,universal").split(",")
+    if item.strip()
+]
+UNIVERSAL_ORPHAN_BLOCK_RATIO_THRESHOLD = float(os.getenv("UNIVERSAL_ORPHAN_BLOCK_RATIO_THRESHOLD", "0.15"))
+UNIVERSAL_CONTINUITY_SPATIAL_WEIGHT = float(os.getenv("UNIVERSAL_CONTINUITY_SPATIAL_WEIGHT", "0.4"))
+UNIVERSAL_CONTINUITY_STRUCTURAL_WEIGHT = float(os.getenv("UNIVERSAL_CONTINUITY_STRUCTURAL_WEIGHT", "0.3"))
+UNIVERSAL_CONTINUITY_SEMANTIC_WEIGHT = float(os.getenv("UNIVERSAL_CONTINUITY_SEMANTIC_WEIGHT", "0.3"))
+UNIVERSAL_CONTINUITY_ATTACH_THRESHOLD = float(os.getenv("UNIVERSAL_CONTINUITY_ATTACH_THRESHOLD", "0.65"))
+UNIVERSAL_CONTINUITY_MAX_PAGE_GAP = int(os.getenv("UNIVERSAL_CONTINUITY_MAX_PAGE_GAP", "1"))
+UNIVERSAL_CONTINUITY_SEMANTIC_PROVIDER = os.getenv("UNIVERSAL_CONTINUITY_SEMANTIC_PROVIDER", "gemini").strip().lower()
+
+# AWS Textract pipeline flags
+AWS_PIPELINE_ENABLED = _env_flag("AWS_PIPELINE_ENABLED", "false")
+AWS_PIPELINE_EXAM_TYPES = [
+    item.strip().lower()
+    for item in os.getenv("AWS_PIPELINE_EXAM_TYPES", "college").split(",")
+    if item.strip()
+]
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "")
+AWS_TEXTRACT_ROLE_ARN = os.getenv("AWS_TEXTRACT_ROLE_ARN", "")
+AWS_TEXTRACT_POLL_INTERVAL_SECS = int(os.getenv("AWS_TEXTRACT_POLL_INTERVAL_SECS", "2"))
+AWS_TEXTRACT_POLL_TIMEOUT_SECS = int(os.getenv("AWS_TEXTRACT_POLL_TIMEOUT_SECS", "900"))
+AWS_TEXTRACT_ENABLE_TABLES = _env_flag("AWS_TEXTRACT_ENABLE_TABLES", "false")
+
+# Marking scheme validation
+MARK_VALIDATION_ENABLED = _env_flag("MARK_VALIDATION_ENABLED", "true")
 
 
 def get_llm_api_key():

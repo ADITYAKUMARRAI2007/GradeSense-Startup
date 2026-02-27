@@ -6,16 +6,24 @@ import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 
-const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/$/, "");
 const API = `${BACKEND_URL}/api`;
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
   const [examType, setExamType] = useState("upsc");
+  const [lockedExamType, setLockedExamType] = useState(null);
 
   // Check for existing session on page load
   useEffect(() => {
+    // Preload locked exam type if user already chose once
+    const savedExamType = localStorage.getItem("user_exam_type");
+    if (savedExamType === "upsc" || savedExamType === "college") {
+      setExamType(savedExamType);
+      setLockedExamType(savedExamType);
+    }
+
     const checkExistingSession = async () => {
       try {
         const response = await axios.get(`${API}/auth/me`, { withCredentials: true });
@@ -90,33 +98,42 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-sm">Exam Type (Required)</Label>
+              <Label className="text-sm">
+                Exam Type {lockedExamType ? "(locked from first login)" : "(Required)"}
+              </Label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setExamType("upsc")}
+                  onClick={() => !lockedExamType && setExamType("upsc")}
                   className={`p-3 rounded-lg border-2 transition-all text-left ${
                     examType === "upsc"
                       ? "border-orange-500 bg-orange-50 text-orange-700"
                       : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  } ${lockedExamType ? "opacity-70 cursor-not-allowed" : ""}`}
+                  disabled={!!lockedExamType}
                 >
                   <div className="font-semibold">UPSC</div>
                   <div className="text-xs text-gray-500">Competitive evaluation</div>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setExamType("college")}
+                  onClick={() => !lockedExamType && setExamType("college")}
                   className={`p-3 rounded-lg border-2 transition-all text-left ${
                     examType === "college"
                       ? "border-blue-500 bg-blue-50 text-blue-700"
                       : "border-gray-200 hover:border-gray-300"
-                  }`}
+                  } ${lockedExamType ? "opacity-70 cursor-not-allowed" : ""}`}
+                  disabled={!!lockedExamType}
                 >
                   <div className="font-semibold">College/School</div>
                   <div className="text-xs text-gray-500">Academic evaluation</div>
                 </button>
               </div>
+              {lockedExamType && (
+                <p className="text-xs text-gray-500">
+                  You chose {lockedExamType.toUpperCase()} earlier. Contact support to change it.
+                </p>
+              )}
             </div>
             {/* Teacher Login */}
             <Button

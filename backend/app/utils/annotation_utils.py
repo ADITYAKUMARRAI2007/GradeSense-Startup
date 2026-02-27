@@ -79,6 +79,12 @@ def apply_annotations_to_image(image_base64: str, annotations: List[Annotation])
             x, y = int(ann.x), int(ann.y)
             color = ann.color or "red"
 
+            # Skip per-question score circles and their "Marks:" labels
+            if ann.annotation_type == AnnotationType.SCORE_CIRCLE:
+                continue
+            if ann.annotation_type == AnnotationType.MARGIN_NOTE and ann.text and ann.text.startswith("Marks:"):
+                continue
+
             if ann.annotation_type == AnnotationType.CHECKMARK:
                 _draw_checkmark(draw, x, y, color, ann.size, img_w)
 
@@ -99,9 +105,6 @@ def apply_annotations_to_image(image_base64: str, annotations: List[Annotation])
 
             elif ann.annotation_type == AnnotationType.POINT_NUMBER:
                 _draw_text(draw, x, y, ann.text, color, ann.size)
-
-            elif ann.annotation_type == AnnotationType.SCORE_CIRCLE:
-                _draw_score_circle(draw, x, y, ann.text, color, ann.size)
 
             elif ann.annotation_type == AnnotationType.MARGIN_BRACKET:
                 h = ann.height or 40
