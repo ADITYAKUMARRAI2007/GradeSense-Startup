@@ -25,9 +25,8 @@ export default function LoginPage() {
     }
 
     const checkExistingSession = async () => {
-      let redirected = false;
       try {
-        const response = await axios.get(`${API}/auth/me`, { withCredentials: true, timeout: 8000 });
+        const response = await axios.get(`${API}/auth/me`, { withCredentials: true });
         
         if (response?.data && typeof response.data === "object" && response.data.user_id) {
           // User has valid session, redirect to appropriate dashboard
@@ -35,16 +34,10 @@ export default function LoginPage() {
             ? "/teacher/dashboard" 
             : "/student/dashboard";
           navigate(redirectPath, { replace: true });
-          redirected = true;
         }
       } catch (error) {
         // No valid session, show login page
         setChecking(false);
-        return;
-      } finally {
-        if (!redirected) {
-          setChecking(false);
-        }
       }
     };
 

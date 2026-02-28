@@ -225,9 +225,15 @@ async def grade_papers_background(
         if not exam:
             raise HTTPException(status_code=404, detail="Exam not found")
         
-        # Removed the 409 check - allow grading even if extraction is processing
-        # This lets you see what questions were extracted and how they map
-        
+        extraction_processing = bool(exam.get("question_paper_processing")) or (
+            str(exam.get("question_extraction_status", "")).lower() == "processing"
+        )
+        if extraction_processing:
+            raise HTTPException(
+                status_code=409,
+                detail="Question paper extraction is still in progress. Wait until it finishes, then grade.",
+            )
+
         if not exam.get("questions"):
             raise HTTPException(
                 status_code=400,

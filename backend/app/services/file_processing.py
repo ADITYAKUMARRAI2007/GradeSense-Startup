@@ -4,12 +4,16 @@ PDF-to-image conversion and rotation correction.
 
 import io
 import base64
+import os
 from typing import List
 
 import fitz
 from PIL import Image
 
 from app.config import logger
+
+PDF_TO_IMAGES_ZOOM = float(os.getenv("PDF_TO_IMAGES_ZOOM", "1.3"))
+PDF_TO_IMAGES_JPEG_QUALITY = int(os.getenv("PDF_TO_IMAGES_JPEG_QUALITY", "60"))
 
 
 def pdf_to_images(pdf_bytes: bytes) -> List[str]:
@@ -20,16 +24,16 @@ def pdf_to_images(pdf_bytes: bytes) -> List[str]:
     # Process ALL pages - no limit
     for page_num in range(len(doc)):
         page = doc[page_num]
-        # Use 1.5x zoom for balance between quality and token efficiency
-        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+        # Configurable zoom for balance between quality and memory usage
+        pix = page.get_pixmap(matrix=fitz.Matrix(PDF_TO_IMAGES_ZOOM, PDF_TO_IMAGES_ZOOM))
         img_bytes = pix.tobytes("jpeg")
         
         # Compress the image to save storage (40-60% reduction)
         img = Image.open(io.BytesIO(img_bytes))
         
-        # Compress with quality=60 (good balance of quality vs size)
+        # Compress with configurable quality (good balance of quality vs size)
         compressed_buffer = io.BytesIO()
-        img.save(compressed_buffer, format="JPEG", quality=60, optimize=True)
+        img.save(compressed_buffer, format="JPEG", quality=PDF_TO_IMAGES_JPEG_QUALITY, optimize=True)
         compressed_bytes = compressed_buffer.getvalue()
         
         # Convert to base64

@@ -14,6 +14,7 @@ import re
 import hashlib
 import uuid
 import os
+import gc
 
 from fastapi import HTTPException
 from pymongo import ReturnDocument
@@ -67,6 +68,9 @@ UNRESOLVED_RATIO_MAX = float(os.getenv("UNRESOLVED_RATIO_MAX", "0.10"))
 COLLEGE_V2_PARTIAL_GRADING_ENABLED = os.getenv("COLLEGE_V2_PARTIAL_GRADING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 COLLEGE_V2_PARTIAL_MIN_MAPPED = int(os.getenv("COLLEGE_V2_PARTIAL_MIN_MAPPED", "1"))
 COLLEGE_V2_PARTIAL_MIN_COVERAGE = float(os.getenv("COLLEGE_V2_PARTIAL_MIN_COVERAGE", "0.85"))
+GRADING_PDF_DPI = int(os.getenv("GRADING_PDF_DPI", "200"))
+GRADING_PDF_NORMALIZE = os.getenv("GRADING_PDF_NORMALIZE", "false").lower() in ("1", "true", "yes", "on")
+GRADING_USE_CLEAN_CONVERSION = os.getenv("GRADING_USE_CLEAN_CONVERSION", "false").lower() in ("1", "true", "yes", "on")
 
 
 def _allow_college_v2_partial_grading(
@@ -2590,11 +2594,27 @@ async def process_grading_job_in_background(job_id: str, exam_id: str, files_dat
                 
                 try:
                     async with conversion_semaphore:
-                        images = await asyncio.to_thread(pdf_to_clean_images, pdf_bytes, 300)
+                        if GRADING_USE_CLEAN_CONVERSION:
+                            images = await asyncio.to_thread(
+                                pdf_to_clean_images,
+                                pdf_bytes,
+                                GRADING_PDF_DPI,
+                                GRADING_PDF_NORMALIZE,
+                            )
+                        else:
+                            images = await asyncio.to_thread(pdf_to_images, pdf_bytes)
                 except Exception as clean_err:
-                    logger.warning("300-DPI clean conversion failed, falling back to default converter: %s", clean_err)
+                    logger.warning("PDF conversion failed, falling back to alternate converter: %s", clean_err)
                     async with conversion_semaphore:
-                        images = await asyncio.to_thread(pdf_to_images, pdf_bytes)
+                        if GRADING_USE_CLEAN_CONVERSION:
+                            images = await asyncio.to_thread(pdf_to_images, pdf_bytes)
+                        else:
+                            images = await asyncio.to_thread(
+                                pdf_to_clean_images,
+                                pdf_bytes,
+                                GRADING_PDF_DPI,
+                                GRADING_PDF_NORMALIZE,
+                            )
                 
                 if not images:
                     errors.append({"filename": filename, "error": "Failed to extract images from PDF"})
@@ -2868,6 +2888,18 @@ async def process_grading_job_in_background(job_id: str, exam_id: str, files_dat
             except Exception as e:
                 logger.error(f"Error processing {filename}: {e}")
                 errors.append({"filename": filename, "error": str(e)})
+            finally:
+                # Release large image buffers promptly to reduce peak memory
+                try:
+                    if "annotated_images" in locals():
+                        del annotated_images
+                    if "images" in locals():
+                        del images
+                    if "model_answer_imgs" in locals():
+                        del model_answer_imgs
+                except Exception:
+                    pass
+                gc.collect()
             
             # Update progress after each file
             await db.grading_jobs.update_one(

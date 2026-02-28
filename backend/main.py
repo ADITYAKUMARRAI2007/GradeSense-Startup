@@ -9,18 +9,56 @@ import time
 import asyncio
 import subprocess
 import shutil
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import logger, get_version_info
-from app.database import client
+from app.database import client, db
 from app.services.background import run_background_worker
 from app.services.metrics import log_api_metric
 from app.routes import register_all_routes
 
 # Global reference to the background worker task
 _worker_task = None
+
+
+async def _cleanup_orphaned_grading_jobs():
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        result = await db.grading_jobs.update_many(
+            {"status": {"$in": ["pending", "processing"]}},
+            {
+                "$set": {
+                    "status": "failed",
+                    "error": "Server restarted before grading completed.",
+                    "updated_at": now,
+                    "completed_at": now,
+                }
+            },
+        )
+        if int(result.modified_count or 0) > 0:
+            logger.info("CLEANUP_GRADING_JOBS marked_failed=%s", int(result.modified_count or 0))
+    except Exception as e:
+        logger.warning("Failed to cleanup grading jobs on startup: %s", e)
+
+    try:
+        result = await db.exams.update_many(
+            {"processing_state": "grading", "processing_lock_owner": {"$regex": "^grading_job:"}},
+            {
+                "$set": {
+                    "processing_state": "idle",
+                    "processing_lock_at": now,
+                    "status": "ready",
+                },
+                "$unset": {"processing_lock_owner": ""},
+            },
+        )
+        if int(result.modified_count or 0) > 0:
+            logger.info("CLEANUP_EXAMS_UNLOCKED count=%s", int(result.modified_count or 0))
+    except Exception as e:
+        logger.warning("Failed to unlock grading exams on startup: %s", e)
 
 
 async def lifespan(app: FastAPI):
@@ -51,6 +89,8 @@ async def lifespan(app: FastAPI):
             logger.error("⚠️  PDF processing may not work correctly!")
     else:
         logger.info("✅ poppler-utils is already installed")
+
+    await _cleanup_orphaned_grading_jobs()
 
     logger.info("🔄 Starting integrated background task worker...")
     _worker_task = asyncio.create_task(run_background_worker())
